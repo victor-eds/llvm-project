@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Conversion/GPUCommon/AttrToSPIRVConverter.h"
+#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/GPUToLLVMSPV/GPUToLLVMSPVPass.h"
 
 #include "../GPUCommon/GPUOpsLowering.h"
@@ -87,6 +89,8 @@ static LLVM::CallOp createSPIRVBuiltinCall(Location loc,
 }
 
 namespace {
+inline constexpr spirv::ClientAPI clientAPI = spirv::ClientAPI::OpenCL;
+
 //===----------------------------------------------------------------------===//
 // Barriers
 //===----------------------------------------------------------------------===//
@@ -328,6 +332,7 @@ struct GPUToLLVMSPVConversionPass final
                         gpu::ReturnOp, gpu::ShuffleOp, gpu::ThreadIdOp>();
 
     populateGpuToLLVMSPVConversionPatterns(converter, patterns);
+    populateGpuMemorySpaceAttributeConversions(converter);
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns))))
@@ -349,7 +354,6 @@ void populateGpuToLLVMSPVConversionPatterns(LLVMTypeConverter &typeConverter,
                LaunchConfigOpConversion<gpu::BlockDimOp>,
                LaunchConfigOpConversion<gpu::ThreadIdOp>,
                LaunchConfigOpConversion<gpu::GlobalIdOp>>(typeConverter);
-  constexpr spirv::ClientAPI clientAPI = spirv::ClientAPI::OpenCL;
   MLIRContext *context = &typeConverter.getContext();
   unsigned privateAddressSpace =
       storageClassToAddressSpace(clientAPI, spirv::StorageClass::Function);
@@ -365,5 +369,13 @@ void populateGpuToLLVMSPVConversionPatterns(LLVMTypeConverter &typeConverter,
           /*kernelAttributeName=*/{}, kernelBlockSizeAttributeName,
           LLVM::CConv::SPIR_KERNEL, LLVM::CConv::SPIR_FUNC,
           /*encodeWorkgroupAttributionsAsArguments=*/true});
+}
+
+void populateGpuMemorySpaceAttributeConversions(TypeConverter &typeConverter) {
+  populateGpuMemorySpaceAttributeConversions(
+      typeConverter, [](gpu::AddressSpace space) -> unsigned {
+        return storageClassToAddressSpace(clientAPI,
+                                          addressSpaceToStorageClass(space));
+      });
 }
 } // namespace mlir

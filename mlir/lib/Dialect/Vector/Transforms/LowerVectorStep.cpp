@@ -40,7 +40,7 @@ struct StepToArithConstantOpRewrite final : OpRewritePattern<vector::StepOp> {
     unsigned bitWidth = elementType.isIndex()
                             ? IndexType::kInternalStorageBitWidth
                             : elementType.getIntOrFloatBitWidth();
-    SmallVector<APInt> indices = 
+    SmallVector<APInt> indices =
         llvm::map_to_vector(llvm::seq(elementCount), [bitWidth](int64_t i) {
           return APInt(bitWidth, i, /*isSigned=*/false, /*implicitTrunc=*/true);
         });

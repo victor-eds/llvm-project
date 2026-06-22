@@ -2197,3 +2197,11 @@ func.func @step_scalable() -> vector<[4]xindex> {
   %0 = vector.step : vector<[4]xindex>
   return %0 : vector<[4]xindex>
 }
+
+// CHECK-LABEL: @step_scalable_i8
+// CHECK: %[[STEPVECTOR:.*]] = llvm.intr.stepvector : vector<[4]xi8>
+// CHECK: return %[[STEPVECTOR]] : vector<[4]xi8>
+func.func @step_scalable_i8() -> vector<[4]xi8> {
+  %0 = vector.step : vector<[4]xi8>
+  return %0 : vector<[4]xi8>
+}

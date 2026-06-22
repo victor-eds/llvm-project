@@ -33,9 +33,17 @@ struct StepToArithConstantOpRewrite final : OpRewritePattern<vector::StepOp> {
       return failure();
     }
     int64_t elementCount = resultType.getNumElements();
-    SmallVector<APInt> indices =
-        llvm::map_to_vector(llvm::seq(elementCount),
-                            [](int64_t i) { return APInt(/*width=*/64, i); });
+    Type elementType = resultType.getElementType();
+    // `index` elements are stored in a `DenseElementsAttr` as 64-bit values;
+    // integer elements use their own bitwidth. Values that are not
+    // representable in the element type wrap around.
+    unsigned bitWidth = elementType.isIndex()
+                            ? IndexType::kInternalStorageBitWidth
+                            : elementType.getIntOrFloatBitWidth();
+    SmallVector<APInt> indices = llvm::map_to_vector(
+        llvm::seq(elementCount), [bitWidth](int64_t i) {
+          return APInt(bitWidth, i, /*isSigned=*/false, /*implicitTrunc=*/true);
+        });
     rewriter.replaceOpWithNewOp<arith::ConstantOp>(
         stepOp, DenseElementsAttr::get(resultType, indices));
     return success();

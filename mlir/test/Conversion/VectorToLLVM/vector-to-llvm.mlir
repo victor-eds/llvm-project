@@ -1756,6 +1756,25 @@ func.func @step() -> vector<4xindex> {
   return %0 : vector<4xindex>
 }
 
+// CHECK-LABEL: @step_i8
+// CHECK: %[[CST:.+]] = arith.constant dense<[0, 1, 2, 3]> : vector<4xi8>
+// CHECK: return %[[CST]] : vector<4xi8>
+func.func @step_i8() -> vector<4xi8> {
+  %0 = vector.step : vector<4xi8>
+  return %0 : vector<4xi8>
+}
+
+// The sequence wraps past the i8 limit, so lane values are truncated. The
+// constant is printed as a hex blob ending in `...FEFF0001`: after 255 (`FF`)
+// the values restart at 0 (`00`) and 1 (`01`).
+// CHECK-LABEL: @step_i8_truncate
+// CHECK: %[[CST:.+]] = arith.constant dense<"0x0001{{.*}}FEFF0001"> : vector<258xi8>
+// CHECK: return %[[CST]] : vector<258xi8>
+func.func @step_i8_truncate() -> vector<258xi8> {
+  %0 = vector.step : vector<258xi8>
+  return %0 : vector<258xi8>
+}
+
 
 // -----
 

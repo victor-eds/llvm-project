@@ -3044,10 +3044,10 @@ def Vector_StepOp : Vector_Op<"step", [
     Examples:
 
     ```mlir
-    %0 = vector.step : vector<4xindex>   ; [0, 1, 2, 3]
-    %1 = vector.step : vector<4xi32>     ; [0, 1, 2, 3]
-    %2 = vector.step : vector<258xi8>    ; [0, 1, .., 255, 0, 1]
-    %3 = vector.step : vector<[4]xindex> ; [0, 1, .., <vscale * 4 - 1>]
+    %0 = vector.step : vector<4xindex>   // [0, 1, 2, 3]
+    %1 = vector.step : vector<4xi32>     // [0, 1, 2, 3]
+    %2 = vector.step : vector<258xi8>    // [0, 1, .., 255, 0, 1]
+    %3 = vector.step : vector<[4]xindex> // [0, 1, .., <vscale * 4 - 1>]
     ```
   }];
   let results = (outs VectorOfRankAndType<[1], [VectorStepElementType]>:$result);

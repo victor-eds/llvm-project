@@ -1226,7 +1226,52 @@ OpFoldResult arith::AddFOp::fold(FoldAdaptor adaptor) {
   if (matchPattern(adaptor.getRhs(), m_NegZeroFloat()))
     return getLhs();
 
+  arith::FastMathFlags fmf = getFastmath();
   auto rm = getRoundingmode();
+  // Zero-producing / reassociating folds only hold under the default rounding
+  // mode: e.g. -x + x is +0 to-nearest but -0 toward-negative.
+  bool hasDefaultRounding = !rm;
+
+  // addf(x, +0) -> x, when nsz is set (the sign of a +/-0 result is ignored).
+  if (arith::bitEnumContainsAll(fmf, arith::FastMathFlags::nsz) &&
+      matchPattern(adaptor.getRhs(), m_PosZeroFloat()))
+    return getLhs();
+
+  if (arith::bitEnumContainsAll(fmf, arith::FastMathFlags::nnan)) {
+    // addf(x, +-inf) -> +-inf
+    if (matchPattern(adaptor.getRhs(), m_PosInfFloat()) ||
+        matchPattern(adaptor.getRhs(), m_NegInfFloat()))
+      return getRhs();
+
+    // addf(-x, x) -> 0 and addf(0 - x, x) -> 0 (either operand order). Bail on
+    // dynamically shaped types: we cannot build a splat zero for them.
+    auto shapedType = dyn_cast<ShapedType>(getType());
+    if (hasDefaultRounding && (!shapedType || shapedType.hasStaticShape())) {
+      auto isNegationOf = [](Value negated, Value x) {
+        // 0 - x has the same magnitude as -x in every rounding mode; the zero
+        // sign only matters for x == +-0, covered by the +0 result under nnan.
+        return matchPattern(negated, m_Op<NegFOp>(matchers::m_Val(x))) ||
+               matchPattern(negated,
+                            m_Op<SubFOp>(m_AnyZeroFloat(), matchers::m_Val(x)));
+      };
+      if (isNegationOf(getLhs(), getRhs()) || isNegationOf(getRhs(), getLhs()))
+        return Builder(getContext()).getZeroAttr(getType());
+    }
+  }
+
+  // addf(subf(x, y), y) -> x (either operand order), when nsz and reassoc are
+  // set.
+  if (hasDefaultRounding &&
+      arith::bitEnumContainsAll(fmf, arith::FastMathFlags::nsz |
+                                         arith::FastMathFlags::reassoc)) {
+    Value x;
+    if (matchPattern(getLhs(), m_Op<SubFOp>(matchers::m_Any(&x),
+                                            matchers::m_Val(getRhs()))) ||
+        matchPattern(getRhs(), m_Op<SubFOp>(matchers::m_Any(&x),
+                                            matchers::m_Val(getLhs()))))
+      return x;
+  }
+
   return constFoldBinaryOp<FloatAttr>(
       adaptor.getOperands(), [rm](const APFloat &a, const APFloat &b) {
         APFloat result(a);

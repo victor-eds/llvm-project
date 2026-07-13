@@ -3064,6 +3064,182 @@ func.func @test_addf_negf_rounding_mode(%x : f32, %y : f32) -> (f32, f32) {
 
 // -----
 
+// CHECK-LABEL: @test_addf_pos_zero(
+//  CHECK-SAME: %[[ARG0:.+]]: f32
+func.func @test_addf_pos_zero(%arg0 : f32) -> (f32, f32) {
+  // CHECK-DAG:  %[[C0:.+]] = arith.constant 0.0
+  // CHECK-DAG:  %[[X:.+]] = arith.addf %[[ARG0]], %[[C0]] : f32
+  // CHECK:      return %[[ARG0]], %[[X]]
+  %c0 = arith.constant 0.0 : f32
+  %0 = arith.addf %arg0, %c0 fastmath<nsz> : f32
+  %1 = arith.addf %arg0, %c0 : f32
+  return %0, %1 : f32, f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_inf(
+//  CHECK-SAME: %[[ARG0:.+]]: f32
+func.func @test_addf_inf(%arg0 : f32) -> (f32, f32, f32) {
+  // CHECK-DAG:  %[[INF:.+]] = arith.constant 0x7F800000 : f32
+  // CHECK-DAG:  %[[NINF:.+]] = arith.constant 0xFF800000 : f32
+  // CHECK-DAG:  %[[X:.+]] = arith.addf %[[ARG0]], %[[INF]] : f32
+  // CHECK:      return %[[INF]], %[[NINF]], %[[X]]
+  %inf = arith.constant 0x7F800000 : f32
+  %ninf = arith.constant 0xFF800000 : f32
+  %0 = arith.addf %arg0, %inf fastmath<nnan> : f32
+  %1 = arith.addf %arg0, %ninf fastmath<nnan> : f32
+  %2 = arith.addf %arg0, %inf : f32
+  return %0, %1, %2 : f32, f32, f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_neg_self_nnan(
+//  CHECK-SAME: %[[ARG0:.+]]: f32
+func.func @test_addf_neg_self_nnan(%arg0 : f32) -> (f32, f32, f32, f32) {
+  // CHECK:      %[[C0:.+]] = arith.constant 0.000000e+00 : f32
+  // CHECK:      return %[[C0]], %[[C0]], %[[C0]], %[[C0]]
+  %c0 = arith.constant 0.0 : f32
+  %n = arith.negf %arg0 : f32
+  %0 = arith.addf %n, %arg0 fastmath<nnan> : f32
+  %s = arith.subf %c0, %arg0 : f32
+  %1 = arith.addf %s, %arg0 fastmath<nnan> : f32
+  %2 = arith.addf %arg0, %n fastmath<nnan> : f32
+  %3 = arith.addf %arg0, %s fastmath<nnan> : f32
+  return %0, %1, %2, %3 : f32, f32, f32, f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_neg_self_nnan_splat(
+//  CHECK-SAME: %[[ARG0:.+]]: vector<4xf32>
+func.func @test_addf_neg_self_nnan_splat(%arg0 : vector<4xf32>) -> vector<4xf32> {
+  // CHECK:      %[[C0:.+]] = arith.constant dense<0.000000e+00> : vector<4xf32>
+  // CHECK:      return %[[C0]]
+  %n = arith.negf %arg0 : vector<4xf32>
+  %0 = arith.addf %n, %arg0 fastmath<nnan> : vector<4xf32>
+  return %0 : vector<4xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_neg_self_dynamic(
+//  CHECK-SAME: %[[ARG0:.+]]: tensor<?xf32>
+func.func @test_addf_neg_self_dynamic(%arg0 : tensor<?xf32>) -> tensor<?xf32> {
+  // CHECK:      %[[R:.+]] = arith.subf %[[ARG0]], %[[ARG0]] fastmath<nnan> : tensor<?xf32>
+  // CHECK:      return %[[R]]
+  %n = arith.negf %arg0 : tensor<?xf32>
+  %0 = arith.addf %n, %arg0 fastmath<nnan> : tensor<?xf32>
+  return %0 : tensor<?xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_neg_self_no_nnan(
+//  CHECK-SAME: %[[ARG0:.+]]: f32
+func.func @test_addf_neg_self_no_nnan(%arg0 : f32) -> f32 {
+  // CHECK-DAG:  %[[C0:.+]] = arith.constant 0.0
+  // CHECK:      %[[S:.+]] = arith.subf %[[C0]], %[[ARG0]] : f32
+  // CHECK:      %[[R:.+]] = arith.addf %[[S]], %[[ARG0]] : f32
+  // CHECK:      return %[[R]]
+  %c0 = arith.constant 0.0 : f32
+  %s = arith.subf %c0, %arg0 : f32
+  %0 = arith.addf %s, %arg0 : f32
+  return %0 : f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_sub_reassoc(
+//  CHECK-SAME: %[[X:.+]]: f32, %[[Y:.+]]: f32
+func.func @test_addf_sub_reassoc(%x : f32, %y : f32) -> (f32, f32, f32) {
+  // CHECK-DAG:  %[[S:.+]] = arith.subf %[[X]], %[[Y]] fastmath<nsz> : f32
+  // CHECK-DAG:  %[[R:.+]] = arith.addf %[[S]], %[[Y]] fastmath<nsz> : f32
+  // CHECK-DAG:  %[[S2:.+]] = arith.subf %[[X]], %[[Y]] fastmath<reassoc> : f32
+  // CHECK-DAG:  %[[R2:.+]] = arith.addf %[[S2]], %[[Y]] fastmath<reassoc> : f32
+  // CHECK:      return %[[X]], %[[R]], %[[R2]]
+  %s0 = arith.subf %x, %y fastmath<nsz,reassoc> : f32
+  %0 = arith.addf %s0, %y fastmath<nsz,reassoc> : f32
+  %s1 = arith.subf %x, %y fastmath<nsz> : f32
+  %1 = arith.addf %s1, %y fastmath<nsz> : f32
+  %s2 = arith.subf %x, %y fastmath<reassoc> : f32
+  %2 = arith.addf %s2, %y fastmath<reassoc> : f32
+  return %0, %1, %2 : f32, f32, f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_sub_reassoc_commuted(
+//  CHECK-SAME: %[[X:.+]]: f32, %[[Y:.+]]: f32
+func.func @test_addf_sub_reassoc_commuted(%x : f32, %y : f32) -> f32 {
+  // CHECK:      return %[[X]]
+  %s = arith.subf %x, %y fastmath<nsz,reassoc> : f32
+  %0 = arith.addf %y, %s fastmath<nsz,reassoc> : f32
+  return %0 : f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_folds_rounding_mode(
+//  CHECK-SAME: %[[X:.+]]: f32, %[[Y:.+]]: f32
+func.func @test_addf_folds_rounding_mode(%x : f32, %y : f32) -> (f32, f32) {
+  // CHECK-DAG:  %[[C0:.+]] = arith.constant 0.0
+  // CHECK:      %[[S0:.+]] = arith.subf %[[C0]], %[[X]] : f32
+  // CHECK:      %[[R0:.+]] = arith.addf %[[S0]], %[[X]] downward fastmath<nnan> : f32
+  // CHECK:      %[[S1:.+]] = arith.subf %[[X]], %[[Y]] fastmath<reassoc,nsz> : f32
+  // CHECK:      %[[R1:.+]] = arith.addf %[[S1]], %[[Y]] downward fastmath<reassoc,nsz> : f32
+  // CHECK:      return %[[R0]], %[[R1]]
+  %c0 = arith.constant 0.0 : f32
+  %s0 = arith.subf %c0, %x : f32
+  %0 = arith.addf %s0, %x downward fastmath<nnan> : f32
+  %s1 = arith.subf %x, %y fastmath<nsz,reassoc> : f32
+  %1 = arith.addf %s1, %y downward fastmath<nsz,reassoc> : f32
+  return %0, %1 : f32, f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_pos_zero_rounding_mode(
+//  CHECK-SAME: %[[X:.+]]: f32
+func.func @test_addf_pos_zero_rounding_mode(%x : f32) -> f32 {
+  // CHECK-NEXT: return %[[X]]
+  %c0 = arith.constant 0.0 : f32
+  %0 = arith.addf %x, %c0 downward fastmath<nsz> : f32
+  return %0 : f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_inf_rounding_mode(
+//  CHECK-SAME: %[[X:.+]]: f32
+func.func @test_addf_inf_rounding_mode(%x : f32) -> f32 {
+  // CHECK:      %[[INF:.+]] = arith.constant 0x7F800000 : f32
+  // CHECK:      return %[[INF]]
+  %inf = arith.constant 0x7F800000 : f32
+  %0 = arith.addf %x, %inf downward fastmath<nnan> : f32
+  return %0 : f32
+}
+
+// -----
+
+// CHECK-LABEL: @test_addf_folds_splat(
+//  CHECK-SAME: %[[V:.+]]: vector<4xf32>, %[[W:.+]]: vector<4xf32>
+func.func @test_addf_folds_splat(%v : vector<4xf32>, %w : vector<4xf32>)
+    -> (vector<4xf32>, vector<4xf32>, vector<4xf32>) {
+  // CHECK-DAG:  %[[INF:.+]] = arith.constant dense<0x7F800000> : vector<4xf32>
+  // CHECK:      return %[[V]], %[[INF]], %[[V]]
+  %z = arith.constant dense<0.0> : vector<4xf32>
+  %inf = arith.constant dense<0x7F800000> : vector<4xf32>
+  %0 = arith.addf %v, %z fastmath<nsz> : vector<4xf32>
+  %1 = arith.addf %v, %inf fastmath<nnan> : vector<4xf32>
+  %s = arith.subf %v, %w fastmath<nsz,reassoc> : vector<4xf32>
+  %2 = arith.addf %s, %w fastmath<nsz,reassoc> : vector<4xf32>
+  return %0, %1, %2 : vector<4xf32>, vector<4xf32>, vector<4xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @test_subf_rounding_mode(
 // CHECK-SAME: %[[ARG0:.+]]: f32
 func.func @test_subf_rounding_mode(%arg0 : f32) -> (f32, f32, f32, f32) {

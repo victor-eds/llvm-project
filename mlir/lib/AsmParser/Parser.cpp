@@ -396,19 +396,35 @@ OptionalParseResult Parser::parseOptionalDecimalInteger(APInt &result) {
   return success();
 }
 
+ParseResult Parser::buildFloatFromLiteral(APFloat &result, StringRef spelling,
+                                          bool isNegative,
+                                          const llvm::fltSemantics &semantics,
+                                          SMLoc loc) {
+  // Build the value directly in the target semantics instead of routing it
+  // through `double`, matching LLVM and preserving full precision (a `double`
+  // detour double-rounds and loses bits for types wider than it, e.g. f80/f128).
+  // Overflow/underflow are tolerated (yielding inf/zero), matching the
+  // historical behavior of decimal literals.
+  result = APFloat(semantics);
+  llvm::Expected<APFloat::opStatus> status =
+      result.convertFromString(spelling, APFloat::rmNearestTiesToEven);
+  if (!status) {
+    llvm::consumeError(status.takeError());
+    return emitError(loc, "invalid floating point literal");
+  }
+  if (isNegative)
+    result.changeSign();
+  return success();
+}
+
 ParseResult Parser::parseFloatFromLiteral(std::optional<APFloat> &result,
                                           const Token &tok, bool isNegative,
                                           const llvm::fltSemantics &semantics) {
   // Check for a floating point value.
   if (tok.is(Token::floatliteral)) {
-    auto val = tok.getFloatingPointValue();
-    if (!val)
-      return emitError(tok.getLoc()) << "floating point value too large";
-
-    result.emplace(isNegative ? -*val : *val);
-    bool unused;
-    result->convert(semantics, APFloat::rmNearestTiesToEven, &unused);
-    return success();
+    result.emplace(semantics);
+    return buildFloatFromLiteral(*result, tok.getSpelling(), isNegative,
+                                 semantics, tok.getLoc());
   }
 
   // Check for a hexadecimal float value.

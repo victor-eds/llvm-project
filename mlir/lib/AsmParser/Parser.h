@@ -165,6 +165,14 @@ public:
                                            const Token &tok, bool isNegative,
                                            const llvm::fltSemantics &semantics);
 
+  /// Build an APFloat with the given `semantics` directly from a float literal
+  /// `spelling` (decimal, C-style hexadecimal, inf, or NaN), combining any sign
+  /// folded into the spelling with `isNegative`.
+  ParseResult buildFloatFromLiteral(APFloat &result, StringRef spelling,
+                                    bool isNegative,
+                                    const llvm::fltSemantics &semantics,
+                                    SMLoc loc);
+
   /// Returns true if the current token corresponds to a keyword.
   bool isCurrentTokenAKeyword() const {
     return getToken().isAny(Token::bare_identifier, Token::inttype) ||

@@ -396,11 +396,72 @@ OptionalParseResult Parser::parseOptionalDecimalInteger(APInt &result) {
   return success();
 }
 
+bool Parser::isSpecialFloatLiteralSpelling(StringRef spelling) {
+  // Drop the optional sign folded into inf/NaN spellings.
+  spelling.consume_front("+") || spelling.consume_front("-");
+  if (spelling.empty())
+    return false;
+  // Infinity or NaN: inf, qnan, nan(0x..), snan(0x..).
+  if (isalpha(static_cast<unsigned char>(spelling.front())))
+    return true;
+  // C-style hexadecimal float: 0x.. with a fractional part and/or exponent.
+  // The plain 0x.. bit-pattern form is handled as an integer literal instead.
+  if (spelling.starts_with("0x"))
+    return spelling.contains('.') || spelling.contains('p') ||
+           spelling.contains('P');
+  return false;
+}
+
+ParseResult Parser::buildFloatFromSpecialLiteral(
+    APFloat &result, StringRef spelling, bool isNegative,
+    const llvm::fltSemantics &semantics, SMLoc loc) {
+  bool isNeg = isNegative;
+  if (spelling.consume_front("-"))
+    isNeg = !isNeg;
+  else
+    spelling.consume_front("+");
+
+  if (spelling == "qnan") {
+    result = APFloat::getQNaN(semantics, isNeg);
+    return success();
+  }
+  if (spelling == "inf") {
+    result = APFloat::getInf(semantics, isNeg);
+    return success();
+  }
+
+  // nan(0x..) / snan(0x..) / C-style hexadecimal float: let APFloat build the
+  // value directly in the target semantics, then apply the sign.
+  result = APFloat(semantics);
+  llvm::Expected<APFloat::opStatus> status =
+      result.convertFromString(spelling, APFloat::rmNearestTiesToEven);
+  if (!status) {
+    llvm::consumeError(status.takeError());
+    return emitError(loc, "invalid floating point literal");
+  }
+  if (*status & APFloat::opOverflow)
+    return emitError(loc, "floating point value overflows type");
+  if ((*status & APFloat::opUnderflow) && result.isZero())
+    return emitError(loc, "floating point value underflows to zero");
+  if (isNeg)
+    result.changeSign();
+  return success();
+}
+
 ParseResult Parser::parseFloatFromLiteral(std::optional<APFloat> &result,
                                           const Token &tok, bool isNegative,
                                           const llvm::fltSemantics &semantics) {
   // Check for a floating point value.
   if (tok.is(Token::floatliteral)) {
+    // Special values (inf/NaN) and C-style hexadecimal floats are built
+    // directly in the target semantics to avoid going through `double`.
+    StringRef spelling = tok.getSpelling();
+    if (isSpecialFloatLiteralSpelling(spelling)) {
+      result.emplace(semantics);
+      return buildFloatFromSpecialLiteral(*result, spelling, isNegative,
+                                          semantics, tok.getLoc());
+    }
+
     auto val = tok.getFloatingPointValue();
     if (!val)
       return emitError(tok.getLoc()) << "floating point value too large";

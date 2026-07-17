@@ -339,9 +339,9 @@ ParseResult Parser::parseAttributeDict(NamedAttrList &attributes) {
 
 /// Parse a float attribute.
 Attribute Parser::parseFloatAttr(Type type, bool isNegative) {
-  auto val = getToken().getFloatingPointValue();
-  if (!val)
-    return (emitError("floating point value too large for attribute"), nullptr);
+  Token tok = getToken();
+  StringRef spelling = tok.getSpelling();
+  SMLoc loc = tok.getLoc();
   consumeToken(Token::floatliteral);
   if (!type) {
     // Default to F64 when no type is specified.
@@ -350,10 +350,26 @@ Attribute Parser::parseFloatAttr(Type type, bool isNegative) {
     else if (!(type = parseType()))
       return nullptr;
   }
-  if (!isa<FloatType>(type))
-    return (emitError("floating point value not valid for specified type"),
+  auto floatType = dyn_cast<FloatType>(type);
+  if (!floatType)
+    return (emitError(loc, "floating point value not valid for specified type"),
             nullptr);
-  return FloatAttr::get(type, isNegative ? -*val : *val);
+
+  // Special values (inf/NaN) and C-style hexadecimal floats are built directly
+  // in the target semantics to preserve NaN payloads and avoid double-rounding.
+  if (isSpecialFloatLiteralSpelling(spelling)) {
+    APFloat result(floatType.getFloatSemantics());
+    if (failed(buildFloatFromSpecialLiteral(result, spelling, isNegative,
+                                            floatType.getFloatSemantics(), loc)))
+      return nullptr;
+    return FloatAttr::get(floatType, result);
+  }
+
+  std::optional<double> val = tok.getFloatingPointValue();
+  if (!val)
+    return (emitError(loc, "floating point value too large for attribute"),
+            nullptr);
+  return FloatAttr::get(floatType, isNegative ? -*val : *val);
 }
 
 /// Construct an APint from a parsed value, a known attribute type and

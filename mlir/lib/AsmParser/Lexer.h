@@ -60,6 +60,7 @@ private:
   Token lexBareIdentifierOrKeyword(const char *tokStart);
   Token lexEllipsis(const char *tokStart);
   Token lexNumber(const char *tokStart);
+  std::optional<Token> lexSpecialFloatLiteral(const char *tokStart);
   Token lexPrefixedIdentifier(const char *tokStart);
   Token lexString(const char *tokStart);
 

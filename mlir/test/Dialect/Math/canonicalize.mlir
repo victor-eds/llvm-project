@@ -28,7 +28,7 @@ func.func @log2_fold() -> f32 {
 }
 
 // CHECK-LABEL: @log2_fold2
-// CHECK: %[[cst:.+]] = arith.constant 0xFF800000 : f32
+// CHECK: %[[cst:.+]] = arith.constant -inf : f32
   // CHECK: return %[[cst]]
 func.func @log2_fold2() -> f32 {
   %c = arith.constant 0.0 : f32
@@ -56,7 +56,7 @@ func.func @log2_fold_64() -> f64 {
 }
 
 // CHECK-LABEL: @log2_fold2_64
-// CHECK: %[[cst:.+]] = arith.constant 0xFFF0000000000000 : f64
+// CHECK: %[[cst:.+]] = arith.constant -inf : f64
   // CHECK: return %[[cst]]
 func.func @log2_fold2_64() -> f64 {
   %c = arith.constant 0.0 : f64

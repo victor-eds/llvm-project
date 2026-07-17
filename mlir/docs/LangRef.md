@@ -174,8 +174,19 @@ integer-literal ::= decimal-literal | hexadecimal-literal
 decimal-literal ::= digit+
 hexadecimal-literal ::= `0x` hex_digit+
 float-literal ::= [-+]?[0-9]+[.][0-9]*([eE][-+]?[0-9]+)?
+                | `0x` hex_digit+ (`.` hex_digit*)? [pP] [-+]? digit+
+                | float-special-literal
+float-special-literal ::= [-+] (`inf` | `qnan` | `s`? `nan` `(` `0x` hex_digit+ `)`)
 string-literal  ::= `"` [^"\n\f\v\r]* `"`   TODO: define escaping rules
 ```
+
+Special floating point values are spelled with a mandatory sign: `+inf`/`-inf`
+for infinities, `+qnan`/`-qnan` for the preferred quiet NaN, and
+`+nan(0x..)`/`+snan(0x..)` for quiet/signaling NaNs with an explicit hexadecimal
+payload. Finite values may also be written as C-style hexadecimal floats
+(`0x1.8p3`). The `0x` bit-pattern form without a fractional part or exponent
+(e.g. `0x7F800000`) is instead interpreted as the raw bit pattern of the target
+type.
 
 Not listed here, but MLIR does support comments. They use standard BCPL syntax,
 starting with a `//` and going until the end of the line.

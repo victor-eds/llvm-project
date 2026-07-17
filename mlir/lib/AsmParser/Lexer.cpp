@@ -147,6 +147,8 @@ Token Lexer::lexToken() {
       return formToken(Token::equal, tokStart);
 
     case '+':
+      if (std::optional<Token> tok = lexSpecialFloatLiteral(tokStart))
+        return *tok;
       return formToken(Token::plus, tokStart);
     case '*':
       return formToken(Token::star, tokStart);
@@ -155,6 +157,8 @@ Token Lexer::lexToken() {
         ++curPtr;
         return formToken(Token::arrow, tokStart);
       }
+      if (std::optional<Token> tok = lexSpecialFloatLiteral(tokStart))
+        return *tok;
       return formToken(Token::minus, tokStart);
 
     case '?':
@@ -308,10 +312,59 @@ Token Lexer::lexEllipsis(const char *tokStart) {
   return formToken(Token::ellipsis, tokStart);
 }
 
+/// Try to lex a signed special floating point literal (infinity or NaN),
+/// starting from the sign character at `tokStart`; `curPtr` points just past
+/// the sign. On success returns a `floatliteral` (or `error`) token; otherwise
+/// returns std::nullopt with `curPtr` unchanged so the caller can fall back to
+/// a plain `plus`/`minus` token. The sign is mandatory and folded into the
+/// token spelling, mirroring LLVM's textual float literals.
+///
+///   float-special ::= [-+] (`inf` | `qnan` | `s`? `nan` `(` `0x` hex_digit+ `)`)
+///
+std::optional<Token> Lexer::lexSpecialFloatLiteral(const char *tokStart) {
+  auto isIdentifierChar = [](char c) {
+    return isalpha(c) || isdigit(c) || c == '_' || c == '$' || c == '.';
+  };
+
+  const char *curBufferEnd = curBuffer.end();
+  const char *p = curPtr;
+  while (p != curBufferEnd && isalpha(*p))
+    ++p;
+  StringRef word(curPtr, p - curPtr);
+
+  // Bare special values: `inf` and `qnan`. Reject when followed by more
+  // identifier characters so e.g. `+infty` stays a `plus` and an identifier.
+  if (word == "inf" || word == "qnan") {
+    if (p != curBufferEnd && isIdentifierChar(*p))
+      return std::nullopt;
+    curPtr = p;
+    return formToken(Token::floatliteral, tokStart);
+  }
+
+  // NaN with a hexadecimal payload: `nan(0x..)` / `snan(0x..)`. The payload is
+  // validated later by APFloat; here we only capture the token, spanning the
+  // parentheses.
+  if ((word == "nan" || word == "snan") && p != curBufferEnd && *p == '(') {
+    ++p; // Consume '('.
+    while (p != curBufferEnd && *p != ')')
+      ++p;
+    if (p == curBufferEnd || *p != ')') {
+      curPtr = p;
+      return emitError(tokStart, "expected ')' in NaN literal");
+    }
+    ++p; // Consume ')'.
+    curPtr = p;
+    return formToken(Token::floatliteral, tokStart);
+  }
+
+  return std::nullopt;
+}
+
 /// Lex a number literal.
 ///
 ///   integer-literal ::= digit+ | `0x` hex_digit+
 ///   float-literal ::= [-+]?[0-9]+[.][0-9]*([eE][-+]?[0-9]+)?
+///                    | `0x` hex_digit+ (`.` hex_digit*)? [pP] [-+]? digit+
 ///
 Token Lexer::lexNumber(const char *tokStart) {
   assert(isdigit(curPtr[-1]));
@@ -326,6 +379,29 @@ Token Lexer::lexNumber(const char *tokStart) {
     curPtr += 2;
     while (isxdigit(*curPtr))
       ++curPtr;
+
+    // Handle C-style hexadecimal floating point literals, distinguished from
+    // the hexadecimal bit-pattern form by a fractional part and/or a binary
+    // exponent: `0x1.fp13`, `0x1p4`. The binary exponent is mandatory.
+    if (*curPtr == '.' || *curPtr == 'p' || *curPtr == 'P') {
+      if (*curPtr == '.') {
+        ++curPtr;
+        while (isxdigit(*curPtr))
+          ++curPtr;
+      }
+      if (*curPtr != 'p' && *curPtr != 'P')
+        return emitError(tokStart, "expected binary exponent in hexadecimal "
+                                   "floating point literal");
+      ++curPtr;
+      if (*curPtr == '-' || *curPtr == '+')
+        ++curPtr;
+      if (!isdigit(static_cast<unsigned char>(*curPtr)))
+        return emitError(tokStart, "expected binary exponent in hexadecimal "
+                                   "floating point literal");
+      while (isdigit(*curPtr))
+        ++curPtr;
+      return formToken(Token::floatliteral, tokStart);
+    }
 
     return formToken(Token::integer, tokStart);
   }

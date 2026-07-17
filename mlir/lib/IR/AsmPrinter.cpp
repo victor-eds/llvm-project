@@ -2257,13 +2257,44 @@ void AsmPrinter::Impl::printLocationInternal(LocationAttr loc, bool pretty,
 /// round-trip losslessly.
 static void printFloatValue(const APFloat &apValue, raw_ostream &os,
                             bool *printedHex = nullptr) {
+  // Print special values in a human-readable, typeless form. The sign is always
+  // included, mirroring LLVM's textual float literals. Because these forms carry
+  // no type, signal the caller (via printedHex) to keep the trailing type.
+  if (apValue.isInfinity()) {
+    if (printedHex)
+      *printedHex = true;
+    os << (apValue.isNegative() ? "-inf" : "+inf");
+    return;
+  }
+  if (apValue.isNaN()) {
+    if (printedHex)
+      *printedHex = true;
+    os << (apValue.isNegative() ? '-' : '+');
+    APInt payload = apValue.getNaNPayload();
+    // The quiet bit is the highest bit of the payload, so the preferred quiet
+    // NaN payload is exactly the sign-mask value.
+    if (payload.isSignMask()) {
+      os << "qnan";
+    } else {
+      if (apValue.isSignaling())
+        os << 's';
+      os << "nan(";
+      // Clear the signaling/quiet bit and trim leading zeros for output.
+      payload.clearBit(payload.getBitWidth() - 1);
+      SmallVector<char, 16> str;
+      payload.trunc(std::max(payload.getActiveBits(), 1u))
+          .toString(str, /*Radix=*/16, /*Signed=*/false,
+                    /*formatAsCLiteral=*/true);
+      os << str << ')';
+    }
+    return;
+  }
+
   // We would like to output the FP constant value in exponential notation,
   // but we cannot do this if doing so will lose precision.  Check here to
   // make sure that we only output it in exponential format if we can parse
   // the value back and get the same value.
-  bool isInf = apValue.isInfinity();
-  bool isNaN = apValue.isNaN();
-  if (!isInf && !isNaN) {
+  {
     SmallString<128> strValue;
     apValue.toString(strValue, /*FormatPrecision=*/6, /*FormatMaxPadding=*/0,
                      /*TruncateZero=*/false);

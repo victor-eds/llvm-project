@@ -675,3 +675,35 @@ func.func @expect_to_parse_literal() {
   %0 = arith.constant dense<[23]> : tensor<1x!unknown<>>
   return
 }
+
+// -----
+
+func.func @hex_float_without_exponent() {
+  // expected-error@below {{expected binary exponent in hexadecimal floating point literal}}
+  %0 = arith.constant 0x1.8 : f64
+  return
+}
+
+// -----
+
+func.func @unclosed_nan_literal() {
+  // expected-error@below {{expected ')' in NaN literal}}
+  %0 = arith.constant +nan(0x1 : f32
+  return
+}
+
+// -----
+
+func.func @invalid_nan_payload() {
+  // expected-error@below {{invalid floating point literal}}
+  %0 = arith.constant +nan(0xZZ) : f32
+  return
+}
+
+// -----
+
+func.func @inf_on_integer_type() {
+  // expected-error@below {{floating point value not valid for specified type}}
+  %0 = arith.constant +inf : i32
+  return
+}

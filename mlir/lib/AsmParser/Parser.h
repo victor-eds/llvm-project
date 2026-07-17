@@ -165,6 +165,19 @@ public:
                                            const Token &tok, bool isNegative,
                                            const llvm::fltSemantics &semantics);
 
+  /// Returns true if `spelling` is a special/hexadecimal floating point literal
+  /// spelling (infinity, NaN, or a C-style hexadecimal float) that must be built
+  /// directly in the target semantics rather than routed through `double`.
+  static bool isSpecialFloatLiteralSpelling(StringRef spelling);
+
+  /// Build an APFloat with the given `semantics` from a special/hexadecimal
+  /// floating point literal `spelling` (see isSpecialFloatLiteralSpelling),
+  /// combining any sign in the spelling with `isNegative`.
+  ParseResult buildFloatFromSpecialLiteral(APFloat &result, StringRef spelling,
+                                           bool isNegative,
+                                           const llvm::fltSemantics &semantics,
+                                           SMLoc loc);
+
   /// Returns true if the current token corresponds to a keyword.
   bool isCurrentTokenAKeyword() const {
     return getToken().isAny(Token::bare_identifier, Token::inttype) ||

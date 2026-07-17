@@ -339,9 +339,11 @@ ParseResult Parser::parseAttributeDict(NamedAttrList &attributes) {
 
 /// Parse a float attribute.
 Attribute Parser::parseFloatAttr(Type type, bool isNegative) {
+  SMLoc loc = getToken().getLoc();
   auto val = getToken().getFloatingPointValue();
   if (!val)
-    return (emitError("floating point value too large for attribute"), nullptr);
+    return (emitError(loc, "floating point value too large for attribute"),
+            nullptr);
   consumeToken(Token::floatliteral);
   if (!type) {
     // Default to F64 when no type is specified.
@@ -351,7 +353,7 @@ Attribute Parser::parseFloatAttr(Type type, bool isNegative) {
       return nullptr;
   }
   if (!isa<FloatType>(type))
-    return (emitError("floating point value not valid for specified type"),
+    return (emitError(loc, "floating point value not valid for specified type"),
             nullptr);
   return FloatAttr::get(type, isNegative ? -*val : *val);
 }

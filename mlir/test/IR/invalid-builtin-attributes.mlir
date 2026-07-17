@@ -52,6 +52,17 @@ func.func @elementsattr_floattype2() -> () {
 
 // -----
 
+// The "not valid for specified type" diagnostic must point at the float literal
+// itself, not at whatever token happens to follow its type (here the `}` sits on
+// the next line, so a stale location would be reported on the wrong line).
+func.func @float_attr_non_float_type() -> () {
+  // expected-error@below {{floating point value not valid for specified type}}
+  "foo"(){bar = 1.0 : i32
+  } : () -> ()
+}
+
+// -----
+
 func.func @elementsattr_toolarge1() -> () {
   "foo"(){bar = dense<[777]> : tensor<1xi8>} : () -> () // expected-error {{integer constant out of range}}
 }

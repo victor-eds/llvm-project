@@ -2960,6 +2960,69 @@ func.func @test_addf(%arg0 : f32) -> (f32, f32, f32, f32) {
 
 // -----
 
+// addf(x, +0.0) -> x under nsz.
+// CHECK-LABEL: @addf_pos_zero_nsz(
+//       CHECK:   return %arg0
+func.func @addf_pos_zero_nsz(%arg0 : f32) -> f32 {
+  %c0 = arith.constant 0.0 : f32
+  %0 = arith.addf %arg0, %c0 fastmath<nsz> : f32
+  return %0 : f32
+}
+
+// Without nsz, addf(x, +0.0) must not fold.
+// CHECK-LABEL: @addf_pos_zero_no_nsz(
+//       CHECK:   arith.addf
+func.func @addf_pos_zero_no_nsz(%arg0 : f32) -> f32 {
+  %c0 = arith.constant 0.0 : f32
+  %0 = arith.addf %arg0, %c0 : f32
+  return %0 : f32
+}
+
+// addf(x, +/-inf) -> +/-inf under nnan.
+// CHECK-LABEL: @addf_inf_nnan(
+//   CHECK-DAG:   %[[PINF:.+]] = arith.constant 0x7F800000
+//   CHECK-DAG:   %[[NINF:.+]] = arith.constant 0xFF800000
+//       CHECK:   return %[[PINF]], %[[NINF]]
+func.func @addf_inf_nnan(%arg0 : f32) -> (f32, f32) {
+  %pinf = arith.constant 0x7F800000 : f32
+  %ninf = arith.constant 0xFF800000 : f32
+  %0 = arith.addf %arg0, %pinf fastmath<nnan> : f32
+  %1 = arith.addf %arg0, %ninf fastmath<nnan> : f32
+  return %0, %1 : f32, f32
+}
+
+// Without nnan, addf(x, inf) must not fold.
+// CHECK-LABEL: @addf_inf_no_nnan(
+//       CHECK:   arith.addf
+func.func @addf_inf_no_nnan(%arg0 : f32) -> f32 {
+  %pinf = arith.constant 0x7F800000 : f32
+  %0 = arith.addf %arg0, %pinf : f32
+  return %0 : f32
+}
+
+// The addf folds apply elementwise to splat vectors.
+// CHECK-LABEL: @addf_splat_vector(
+//   CHECK-DAG:   %[[PINF:.+]] = arith.constant dense<0x7F800000> : vector<4xf32>
+//       CHECK:   return %arg0, %[[PINF]]
+func.func @addf_splat_vector(%arg0 : vector<4xf32>) -> (vector<4xf32>, vector<4xf32>) {
+  %c0 = arith.constant dense<0.0> : vector<4xf32>
+  %pinf = arith.constant dense<0x7F800000> : vector<4xf32>
+  %0 = arith.addf %arg0, %c0 fastmath<nsz> : vector<4xf32>
+  %1 = arith.addf %arg0, %pinf fastmath<nnan> : vector<4xf32>
+  return %0, %1 : vector<4xf32>, vector<4xf32>
+}
+
+// A non-splat +0.0 vector must not fold.
+// CHECK-LABEL: @addf_non_splat_zero_no_fold(
+//       CHECK:   arith.addf
+func.func @addf_non_splat_zero_no_fold(%arg0 : vector<2xf32>) -> vector<2xf32> {
+  %c = arith.constant dense<[0.0, 1.0]> : vector<2xf32>
+  %0 = arith.addf %arg0, %c fastmath<nsz> : vector<2xf32>
+  return %0 : vector<2xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @test_subf(
 func.func @test_subf(%arg0 : f16) -> (f16, f16, f16) {
   // CHECK-DAG:   %[[C1:.+]] = arith.constant -1.0

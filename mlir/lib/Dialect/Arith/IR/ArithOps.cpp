@@ -1352,6 +1352,20 @@ OpFoldResult arith::AddFOp::fold(FoldAdaptor adaptor) {
   if (matchPattern(adaptor.getRhs(), m_NegZeroFloat()))
     return getLhs();
 
+  // addf(x, +0) -> x under nsz (the result differs only for x = -0.0, where
+  // -0.0 + 0.0 == +0.0).
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nsz) &&
+      matchPattern(adaptor.getRhs(), m_PosZeroFloat()))
+    return getLhs();
+
+  // addf(x, +inf) -> +inf and addf(x, -inf) -> -inf when x is not NaN (nnan
+  // also rules out the -inf + +inf == NaN case). addf is commutative, so the
+  // infinity is on the RHS.
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan) &&
+      (matchPattern(adaptor.getRhs(), m_PosInfFloat()) ||
+       matchPattern(adaptor.getRhs(), m_NegInfFloat())))
+    return getRhs();
+
   auto rm = getRoundingmode();
   return constFoldBinaryOp<FloatAttr>(
       adaptor.getOperands(), [rm](const APFloat &a, const APFloat &b) {

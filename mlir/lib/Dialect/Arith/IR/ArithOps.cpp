@@ -2473,6 +2473,39 @@ bool mlir::arith::applyCmpPredicate(arith::CmpFPredicate predicate,
 }
 
 OpFoldResult arith::CmpFOp::fold(FoldAdaptor adaptor) {
+  // cmpf(AlwaysTrue, ...) -> true and cmpf(AlwaysFalse, ...) -> false.
+  if (getPredicate() == CmpFPredicate::AlwaysTrue)
+    return getBoolAttribute(getType(), true);
+  if (getPredicate() == CmpFPredicate::AlwaysFalse)
+    return getBoolAttribute(getType(), false);
+
+  // cmpf(pred, x, x) for the predicates whose result does not depend on
+  // whether x is NaN. UEQ/UGE/ULE are true for equal or unordered operands;
+  // ONE/OGT/OLT are false for equal or unordered operands.
+  if (getLhs() == getRhs()) {
+    switch (getPredicate()) {
+    case CmpFPredicate::UEQ:
+    case CmpFPredicate::UGE:
+    case CmpFPredicate::ULE:
+      return getBoolAttribute(getType(), true);
+    case CmpFPredicate::ONE:
+    case CmpFPredicate::OGT:
+    case CmpFPredicate::OLT:
+      return getBoolAttribute(getType(), false);
+    default:
+      break;
+    }
+  }
+
+  // With nnan, no operand is NaN, so ordered checks always hold: `ord` -> true
+  // and `uno` -> false.
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan)) {
+    if (getPredicate() == CmpFPredicate::ORD)
+      return getBoolAttribute(getType(), true);
+    if (getPredicate() == CmpFPredicate::UNO)
+      return getBoolAttribute(getType(), false);
+  }
+
   auto lhs = dyn_cast_if_present<FloatAttr>(adaptor.getLhs());
   auto rhs = dyn_cast_if_present<FloatAttr>(adaptor.getRhs());
 

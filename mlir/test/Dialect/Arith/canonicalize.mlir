@@ -3321,6 +3321,84 @@ func.func @test_cmpf(%arg0 : f32) -> (i1, i1, i1, i1) {
 
 // -----
 
+// CHECK-LABEL: @cmpf_self_true(
+//       CHECK:   %[[T:.*]] = arith.constant true
+//       CHECK:   return %[[T]], %[[T]], %[[T]]
+func.func @cmpf_self_true(%arg0 : f32) -> (i1, i1, i1) {
+  %0 = arith.cmpf ueq, %arg0, %arg0 : f32
+  %1 = arith.cmpf uge, %arg0, %arg0 : f32
+  %2 = arith.cmpf ule, %arg0, %arg0 : f32
+  return %0, %1, %2 : i1, i1, i1
+}
+
+// CHECK-LABEL: @cmpf_self_false(
+//       CHECK:   %[[F:.*]] = arith.constant false
+//       CHECK:   return %[[F]], %[[F]], %[[F]]
+func.func @cmpf_self_false(%arg0 : f32) -> (i1, i1, i1) {
+  %0 = arith.cmpf one, %arg0, %arg0 : f32
+  %1 = arith.cmpf ogt, %arg0, %arg0 : f32
+  %2 = arith.cmpf olt, %arg0, %arg0 : f32
+  return %0, %1, %2 : i1, i1, i1
+}
+
+// These predicates are NaN-dependent, so self-compare must not fold.
+// CHECK-LABEL: @cmpf_self_no_fold(
+//       CHECK:   arith.cmpf oeq
+//       CHECK:   arith.cmpf oge
+//       CHECK:   arith.cmpf ole
+//       CHECK:   arith.cmpf une
+//       CHECK:   arith.cmpf ugt
+//       CHECK:   arith.cmpf ult
+func.func @cmpf_self_no_fold(%arg0 : f32) -> (i1, i1, i1, i1, i1, i1) {
+  %0 = arith.cmpf oeq, %arg0, %arg0 : f32
+  %1 = arith.cmpf oge, %arg0, %arg0 : f32
+  %2 = arith.cmpf ole, %arg0, %arg0 : f32
+  %3 = arith.cmpf une, %arg0, %arg0 : f32
+  %4 = arith.cmpf ugt, %arg0, %arg0 : f32
+  %5 = arith.cmpf ult, %arg0, %arg0 : f32
+  return %0, %1, %2, %3, %4, %5 : i1, i1, i1, i1, i1, i1
+}
+
+// CHECK-LABEL: @cmpf_always(
+//   CHECK-DAG:   %[[T:.*]] = arith.constant true
+//   CHECK-DAG:   %[[F:.*]] = arith.constant false
+//       CHECK:   return %[[T]], %[[F]]
+func.func @cmpf_always(%arg0 : f32, %arg1 : f32) -> (i1, i1) {
+  %0 = arith.cmpf true, %arg0, %arg1 : f32
+  %1 = arith.cmpf false, %arg0, %arg1 : f32
+  return %0, %1 : i1, i1
+}
+
+// CHECK-LABEL: @cmpf_ord_uno_nnan(
+//   CHECK-DAG:   %[[T:.*]] = arith.constant true
+//   CHECK-DAG:   %[[F:.*]] = arith.constant false
+//       CHECK:   return %[[T]], %[[F]]
+func.func @cmpf_ord_uno_nnan(%arg0 : f32, %arg1 : f32) -> (i1, i1) {
+  %0 = arith.cmpf ord, %arg0, %arg1 fastmath<nnan> : f32
+  %1 = arith.cmpf uno, %arg0, %arg1 fastmath<nnan> : f32
+  return %0, %1 : i1, i1
+}
+
+// Without nnan, ord/uno must not fold.
+// CHECK-LABEL: @cmpf_ord_uno_no_nnan(
+//       CHECK:   arith.cmpf ord
+//       CHECK:   arith.cmpf uno
+func.func @cmpf_ord_uno_no_nnan(%arg0 : f32, %arg1 : f32) -> (i1, i1) {
+  %0 = arith.cmpf ord, %arg0, %arg1 : f32
+  %1 = arith.cmpf uno, %arg0, %arg1 : f32
+  return %0, %1 : i1, i1
+}
+
+// CHECK-LABEL: @cmpf_self_vector(
+//       CHECK:   %[[T:.*]] = arith.constant dense<true> : vector<4xi1>
+//       CHECK:   return %[[T]]
+func.func @cmpf_self_vector(%arg0 : vector<4xf32>) -> vector<4xi1> {
+  %0 = arith.cmpf ueq, %arg0, %arg0 : vector<4xf32>
+  return %0 : vector<4xi1>
+}
+
+// -----
+
 // CHECK-LABEL: @constant_FPtoUI(
 func.func @constant_FPtoUI() -> i32 {
   // CHECK: %[[C0:.+]] = arith.constant 2 : i32

@@ -1899,6 +1899,12 @@ OpFoldResult arith::ExtUIOp::fold(FoldAdaptor adaptor) {
     return getResult();
   }
 
+  // extui(trunci(x) nuw) -> x, when the round trip is to the original width.
+  // nuw means the truncated high bits are zero, so zero-extension restores x.
+  if (auto trunc = getIn().getDefiningOp<TruncIOp>())
+    if (trunc.hasNoUnsignedWrap() && trunc.getIn().getType() == getType())
+      return trunc.getIn();
+
   Type resType = getElementTypeOrSelf(getType());
   unsigned bitWidth = llvm::cast<IntegerType>(resType).getWidth();
   return constFoldCastOp<IntegerAttr, IntegerAttr>(
@@ -1925,6 +1931,13 @@ OpFoldResult arith::ExtSIOp::fold(FoldAdaptor adaptor) {
     getInMutable().assign(lhs.getIn());
     return getResult();
   }
+
+  // extsi(trunci(x) nsw) -> x, when the round trip is to the original width.
+  // nsw means the truncated high bits equal the sign bit, so sign-extension
+  // restores x.
+  if (auto trunc = getIn().getDefiningOp<TruncIOp>())
+    if (trunc.hasNoSignedWrap() && trunc.getIn().getType() == getType())
+      return trunc.getIn();
 
   Type resType = getElementTypeOrSelf(getType());
   unsigned bitWidth = llvm::cast<IntegerType>(resType).getWidth();

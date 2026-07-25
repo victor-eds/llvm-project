@@ -460,6 +460,83 @@ func.func @extSIOfExtSI(%arg0: i1) -> i64 {
   return %ext2 : i64
 }
 
+// extui(trunci(x) nuw) -> x when the ext restores the original width.
+// CHECK-LABEL: @extUIOfTruncINUW
+//       CHECK:   return %arg0
+func.func @extUIOfTruncINUW(%arg0: i32) -> i32 {
+  %t = arith.trunci %arg0 overflow<nuw> : i32 to i16
+  %e = arith.extui %t : i16 to i32
+  return %e : i32
+}
+
+// extsi(trunci(x) nsw) -> x when the ext restores the original width.
+// CHECK-LABEL: @extSIOfTruncINSW
+//       CHECK:   return %arg0
+func.func @extSIOfTruncINSW(%arg0: i32) -> i32 {
+  %t = arith.trunci %arg0 overflow<nsw> : i32 to i16
+  %e = arith.extsi %t : i16 to i32
+  return %e : i32
+}
+
+// No nuw flag: extui(trunci(x)) must not fold.
+// CHECK-LABEL: @extUIOfTruncI_no_nuw
+//       CHECK:   arith.trunci
+//       CHECK:   arith.extui
+func.func @extUIOfTruncI_no_nuw(%arg0: i32) -> i32 {
+  %t = arith.trunci %arg0 : i32 to i16
+  %e = arith.extui %t : i16 to i32
+  return %e : i32
+}
+
+// Width mismatch (i32 -> i16 -> i64): must not fold to the i32 source.
+// CHECK-LABEL: @extUIOfTruncI_width_mismatch
+//       CHECK:   arith.trunci
+//       CHECK:   arith.extui
+func.func @extUIOfTruncI_width_mismatch(%arg0: i32) -> i64 {
+  %t = arith.trunci %arg0 overflow<nuw> : i32 to i16
+  %e = arith.extui %t : i16 to i64
+  return %e : i64
+}
+
+// extsi requires nsw specifically; a nuw-only trunc must not fold.
+// CHECK-LABEL: @extSIOfTruncI_nuw_only
+//       CHECK:   arith.trunci
+//       CHECK:   arith.extsi
+func.func @extSIOfTruncI_nuw_only(%arg0: i32) -> i32 {
+  %t = arith.trunci %arg0 overflow<nuw> : i32 to i16
+  %e = arith.extsi %t : i16 to i32
+  return %e : i32
+}
+
+// extui requires nuw specifically; a nsw-only trunc must not fold.
+// CHECK-LABEL: @extUIOfTruncI_nsw_only
+//       CHECK:   arith.trunci
+//       CHECK:   arith.extui
+func.func @extUIOfTruncI_nsw_only(%arg0: i32) -> i32 {
+  %t = arith.trunci %arg0 overflow<nsw> : i32 to i16
+  %e = arith.extui %t : i16 to i32
+  return %e : i32
+}
+
+// A flagless trunci must not fold under extsi either.
+// CHECK-LABEL: @extSIOfTruncI_no_flags
+//       CHECK:   arith.trunci
+//       CHECK:   arith.extsi
+func.func @extSIOfTruncI_no_flags(%arg0: i32) -> i32 {
+  %t = arith.trunci %arg0 : i32 to i16
+  %e = arith.extsi %t : i16 to i32
+  return %e : i32
+}
+
+// The round trip folds elementwise on vectors too.
+// CHECK-LABEL: @extUIOfTruncINUW_vector
+//       CHECK:   return %arg0
+func.func @extUIOfTruncINUW_vector(%arg0: vector<4xi32>) -> vector<4xi32> {
+  %t = arith.trunci %arg0 overflow<nuw> : vector<4xi32> to vector<4xi16>
+  %e = arith.extui %t : vector<4xi16> to vector<4xi32>
+  return %e : vector<4xi32>
+}
+
 // -----
 
 // CHECK-LABEL: @cmpIExtSINE

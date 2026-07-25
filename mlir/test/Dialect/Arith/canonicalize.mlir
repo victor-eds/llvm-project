@@ -4017,6 +4017,62 @@ func.func @andand3(%a : i32, %b : i32) -> i32 {
   return %res : i32
 }
 
+// CHECK-LABEL: @and_or_absorption
+//  CHECK-SAME:   (%[[A:.*]]: i32, %[[B:.*]]: i32)
+//       CHECK:   return %[[A]]
+func.func @and_or_absorption(%a : i32, %b : i32) -> i32 {
+  %or = arith.ori %a, %b : i32
+  %res = arith.andi %or, %a : i32
+  return %res : i32
+}
+
+// CHECK-LABEL: @and_or_absorption_swapped
+//  CHECK-SAME:   (%[[A:.*]]: i32, %[[B:.*]]: i32)
+//       CHECK:   return %[[B]]
+func.func @and_or_absorption_swapped(%a : i32, %b : i32) -> i32 {
+  %or = arith.ori %a, %b : i32
+  %res = arith.andi %b, %or : i32
+  return %res : i32
+}
+
+// CHECK-LABEL: @or_and_absorption
+//  CHECK-SAME:   (%[[A:.*]]: i32, %[[B:.*]]: i32)
+//       CHECK:   return %[[A]]
+func.func @or_and_absorption(%a : i32, %b : i32) -> i32 {
+  %and = arith.andi %a, %b : i32
+  %res = arith.ori %and, %a : i32
+  return %res : i32
+}
+
+// CHECK-LABEL: @or_and_absorption_swapped
+//  CHECK-SAME:   (%[[A:.*]]: i32, %[[B:.*]]: i32)
+//       CHECK:   return %[[B]]
+func.func @or_and_absorption_swapped(%a : i32, %b : i32) -> i32 {
+  %and = arith.andi %a, %b : i32
+  %res = arith.ori %b, %and : i32
+  return %res : i32
+}
+
+// CHECK-LABEL: @and_or_absorption_vector
+//  CHECK-SAME:   (%[[A:.*]]: vector<4xi32>, %[[B:.*]]: vector<4xi32>)
+//       CHECK:   return %[[A]]
+func.func @and_or_absorption_vector(%a : vector<4xi32>, %b : vector<4xi32>)
+    -> vector<4xi32> {
+  %or = arith.ori %a, %b : vector<4xi32>
+  %res = arith.andi %or, %a : vector<4xi32>
+  return %res : vector<4xi32>
+}
+
+// The outer operand must be one of the inner op operands; otherwise no fold.
+// CHECK-LABEL: @and_or_absorption_no_fold
+//       CHECK:   arith.ori
+//       CHECK:   arith.andi
+func.func @and_or_absorption_no_fold(%a : i32, %b : i32, %c : i32) -> i32 {
+  %or = arith.ori %a, %b : i32
+  %res = arith.andi %or, %c : i32
+  return %res : i32
+}
+
 // -----
 
 // CHECK-LABEL: @addi_of_not

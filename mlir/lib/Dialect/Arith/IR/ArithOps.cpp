@@ -1181,6 +1181,15 @@ OpFoldResult arith::AndIOp::fold(FoldAdaptor adaptor) {
   if (Value result = foldAndIofAndI(*this))
     return result;
 
+  /// and(or(a, b), a) -> a  (absorption law), for both operand orders.
+  for (bool swap : {false, true}) {
+    Value maybeOr = swap ? getRhs() : getLhs();
+    Value other = swap ? getLhs() : getRhs();
+    if (auto orOp = maybeOr.getDefiningOp<OrIOp>())
+      if (orOp.getLhs() == other || orOp.getRhs() == other)
+        return other;
+  }
+
   return constFoldBinaryOp<IntegerAttr>(
       adaptor.getOperands(),
       [](APInt a, const APInt &b) { return std::move(a) & b; });
@@ -1211,6 +1220,15 @@ OpFoldResult arith::OrIOp::fold(FoldAdaptor adaptor) {
                                           m_ConstantInt(&intValue))) &&
       intValue.isAllOnes())
     return getLhs().getDefiningOp<XOrIOp>().getRhs();
+
+  /// or(and(a, b), a) -> a  (absorption law), for both operand orders.
+  for (bool swap : {false, true}) {
+    Value maybeAnd = swap ? getRhs() : getLhs();
+    Value other = swap ? getLhs() : getRhs();
+    if (auto andOp = maybeAnd.getDefiningOp<AndIOp>())
+      if (andOp.getLhs() == other || andOp.getRhs() == other)
+        return other;
+  }
 
   return constFoldBinaryOp<IntegerAttr>(
       adaptor.getOperands(),

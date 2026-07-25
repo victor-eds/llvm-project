@@ -1358,6 +1358,23 @@ void arith::SubFOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
 // MaximumFOp
 //===----------------------------------------------------------------------===//
 
+/// Fold `op(op(x, y), z)` to `op(x, y)` when z is x or y. Valid for the
+/// idempotent commutative floating-point min/max ops regardless of fast-math
+/// flags, since the outer op returns exactly the inner result.
+template <typename OpTy>
+static Value foldNestedMinMaxF(OpTy op) {
+  for (bool reversePrev : {false, true}) {
+    auto prev = (reversePrev ? op.getRhs() : op.getLhs())
+                    .template getDefiningOp<OpTy>();
+    if (!prev)
+      continue;
+    Value other = reversePrev ? op.getLhs() : op.getRhs();
+    if (other == prev.getLhs() || other == prev.getRhs())
+      return prev.getResult();
+  }
+  return {};
+}
+
 OpFoldResult arith::MaximumFOp::fold(FoldAdaptor adaptor) {
   // maximumf(x,x) -> x
   if (getLhs() == getRhs())
@@ -1366,6 +1383,19 @@ OpFoldResult arith::MaximumFOp::fold(FoldAdaptor adaptor) {
   // maximumf(x, -inf) -> x
   if (matchPattern(adaptor.getRhs(), m_NegInfFloat()))
     return getLhs();
+
+  // maximumf(x, NaN) -> NaN (maximumf propagates NaN).
+  if (matchPattern(adaptor.getRhs(), m_NaNFloat()))
+    return getRhs();
+
+  // maximumf(x, +inf) -> +inf, only when x is known non-NaN.
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan) &&
+      matchPattern(adaptor.getRhs(), m_PosInfFloat()))
+    return getRhs();
+
+  // maximumf(maximumf(x, y), x) -> maximumf(x, y)
+  if (Value result = foldNestedMinMaxF(*this))
+    return result;
 
   return constFoldBinaryOp<FloatAttr>(adaptor.getOperands(), llvm::maximum);
 }
@@ -1382,6 +1412,20 @@ OpFoldResult arith::MaxNumFOp::fold(FoldAdaptor adaptor) {
   // maxnumf(x, NaN) -> x
   if (matchPattern(adaptor.getRhs(), m_NaNFloat()))
     return getLhs();
+
+  // maxnumf(x, +inf) -> +inf (maxnumf returns +inf even when x is NaN).
+  if (matchPattern(adaptor.getRhs(), m_PosInfFloat()))
+    return getRhs();
+
+  // maxnumf(x, -inf) -> x, only when x is known non-NaN (otherwise maxnumf
+  // would return the non-NaN -inf operand).
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan) &&
+      matchPattern(adaptor.getRhs(), m_NegInfFloat()))
+    return getLhs();
+
+  // maxnumf(maxnumf(x, y), x) -> maxnumf(x, y)
+  if (Value result = foldNestedMinMaxF(*this))
+    return result;
 
   return constFoldBinaryOp<FloatAttr>(adaptor.getOperands(), llvm::maxnum);
 }
@@ -1445,6 +1489,19 @@ OpFoldResult arith::MinimumFOp::fold(FoldAdaptor adaptor) {
   if (matchPattern(adaptor.getRhs(), m_PosInfFloat()))
     return getLhs();
 
+  // minimumf(x, NaN) -> NaN (minimumf propagates NaN).
+  if (matchPattern(adaptor.getRhs(), m_NaNFloat()))
+    return getRhs();
+
+  // minimumf(x, -inf) -> -inf, only when x is known non-NaN.
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan) &&
+      matchPattern(adaptor.getRhs(), m_NegInfFloat()))
+    return getRhs();
+
+  // minimumf(minimumf(x, y), x) -> minimumf(x, y)
+  if (Value result = foldNestedMinMaxF(*this))
+    return result;
+
   return constFoldBinaryOp<FloatAttr>(adaptor.getOperands(), llvm::minimum);
 }
 
@@ -1460,6 +1517,20 @@ OpFoldResult arith::MinNumFOp::fold(FoldAdaptor adaptor) {
   // minnumf(x, NaN) -> x
   if (matchPattern(adaptor.getRhs(), m_NaNFloat()))
     return getLhs();
+
+  // minnumf(x, -inf) -> -inf (minnumf returns -inf even when x is NaN).
+  if (matchPattern(adaptor.getRhs(), m_NegInfFloat()))
+    return getRhs();
+
+  // minnumf(x, +inf) -> x, only when x is known non-NaN (otherwise minnumf
+  // would return the non-NaN +inf operand).
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan) &&
+      matchPattern(adaptor.getRhs(), m_PosInfFloat()))
+    return getLhs();
+
+  // minnumf(minnumf(x, y), x) -> minnumf(x, y)
+  if (Value result = foldNestedMinMaxF(*this))
+    return result;
 
   return constFoldBinaryOp<FloatAttr>(adaptor.getOperands(), llvm::minnum);
 }

@@ -2855,6 +2855,93 @@ func.func @test_maxnumf(%arg0 : f32) -> (f32, f32, f32, f32) {
 
 // -----
 
+// maximumf/minimumf propagate NaN unconditionally.
+// CHECK-LABEL: @maxmin_nan_propagate(
+//       CHECK:   %[[NAN:.+]] = arith.constant 0x7FC00000
+//       CHECK:   return %[[NAN]], %[[NAN]]
+func.func @maxmin_nan_propagate(%arg0 : f32) -> (f32, f32) {
+  %nan = arith.constant 0x7FC00000 : f32
+  %0 = arith.maximumf %arg0, %nan : f32
+  %1 = arith.minimumf %arg0, %nan : f32
+  return %0, %1 : f32, f32
+}
+
+// maxnumf(x, +inf) and minnumf(x, -inf) collapse unconditionally.
+// CHECK-LABEL: @maxnum_minnum_inf(
+//   CHECK-DAG:   %[[PINF:.+]] = arith.constant 0x7F800000
+//   CHECK-DAG:   %[[NINF:.+]] = arith.constant 0xFF800000
+//       CHECK:   return %[[PINF]], %[[NINF]]
+func.func @maxnum_minnum_inf(%arg0 : f32) -> (f32, f32) {
+  %pinf = arith.constant 0x7F800000 : f32
+  %ninf = arith.constant 0xFF800000 : f32
+  %0 = arith.maxnumf %arg0, %pinf : f32
+  %1 = arith.minnumf %arg0, %ninf : f32
+  return %0, %1 : f32, f32
+}
+
+// Under nnan the opposite-infinity cases collapse too.
+// CHECK-LABEL: @maxmin_inf_nnan(
+//   CHECK-DAG:   %[[PINF:.+]] = arith.constant 0x7F800000
+//   CHECK-DAG:   %[[NINF:.+]] = arith.constant 0xFF800000
+//       CHECK:   return %arg0, %arg0, %[[PINF]], %[[NINF]]
+func.func @maxmin_inf_nnan(%arg0 : f32) -> (f32, f32, f32, f32) {
+  %pinf = arith.constant 0x7F800000 : f32
+  %ninf = arith.constant 0xFF800000 : f32
+  %0 = arith.maxnumf %arg0, %ninf fastmath<nnan> : f32
+  %1 = arith.minnumf %arg0, %pinf fastmath<nnan> : f32
+  %2 = arith.maximumf %arg0, %pinf fastmath<nnan> : f32
+  %3 = arith.minimumf %arg0, %ninf fastmath<nnan> : f32
+  return %0, %1, %2, %3 : f32, f32, f32, f32
+}
+
+// Without nnan the opposite-infinity cases must not fold.
+// CHECK-LABEL: @maxmin_inf_no_nnan(
+//       CHECK:   arith.maxnumf
+//       CHECK:   arith.minnumf
+//       CHECK:   arith.maximumf
+//       CHECK:   arith.minimumf
+func.func @maxmin_inf_no_nnan(%arg0 : f32) -> (f32, f32, f32, f32) {
+  %pinf = arith.constant 0x7F800000 : f32
+  %ninf = arith.constant 0xFF800000 : f32
+  %0 = arith.maxnumf %arg0, %ninf : f32
+  %1 = arith.minnumf %arg0, %pinf : f32
+  %2 = arith.maximumf %arg0, %pinf : f32
+  %3 = arith.minimumf %arg0, %ninf : f32
+  return %0, %1, %2, %3 : f32, f32, f32, f32
+}
+
+// NaN propagation folds on splat vectors too.
+// CHECK-LABEL: @maxmin_nan_vector(
+//       CHECK:   %[[NAN:.+]] = arith.constant dense<0x7FC00000> : vector<4xf32>
+//       CHECK:   return %[[NAN]]
+func.func @maxmin_nan_vector(%arg0 : vector<4xf32>) -> vector<4xf32> {
+  %nan = arith.constant dense<0x7FC00000> : vector<4xf32>
+  %0 = arith.maximumf %arg0, %nan : vector<4xf32>
+  return %0 : vector<4xf32>
+}
+
+// op(op(x, y), x) -> op(x, y) for all four float min/max ops. The last case
+// puts the nested op on the RHS to exercise both operand orders.
+// CHECK-LABEL: @maxmin_nested(
+//   CHECK-DAG:   %[[M0:.+]] = arith.maximumf %arg0, %arg1
+//   CHECK-DAG:   %[[M1:.+]] = arith.minimumf %arg0, %arg1
+//   CHECK-DAG:   %[[M2:.+]] = arith.maxnumf %arg0, %arg1
+//   CHECK-DAG:   %[[M3:.+]] = arith.minnumf %arg0, %arg1
+//       CHECK:   return %[[M0]], %[[M1]], %[[M2]], %[[M3]]
+func.func @maxmin_nested(%arg0 : f32, %arg1 : f32) -> (f32, f32, f32, f32) {
+  %m0 = arith.maximumf %arg0, %arg1 : f32
+  %0 = arith.maximumf %m0, %arg0 : f32
+  %m1 = arith.minimumf %arg0, %arg1 : f32
+  %1 = arith.minimumf %m1, %arg1 : f32
+  %m2 = arith.maxnumf %arg0, %arg1 : f32
+  %2 = arith.maxnumf %m2, %arg0 : f32
+  %m3 = arith.minnumf %arg0, %arg1 : f32
+  %3 = arith.minnumf %arg1, %m3 : f32
+  return %0, %1, %2, %3 : f32, f32, f32, f32
+}
+
+// -----
+
 // CHECK-LABEL: @test_addf(
 func.func @test_addf(%arg0 : f32) -> (f32, f32, f32, f32) {
   // CHECK-DAG:   %[[C2:.+]] = arith.constant 2.0

@@ -4316,6 +4316,82 @@ func.func @and_or_absorption_no_fold(%a : i32, %b : i32, %c : i32) -> i32 {
   return %res : i32
 }
 
+// and(xor(a, c), xor(a, ~c)) -> 0 (~5 == -6).
+// CHECK-LABEL: @and_complementary_xor(
+//       CHECK:   %[[C0:.+]] = arith.constant 0 : i32
+//       CHECK:   return %[[C0]]
+func.func @and_complementary_xor(%a : i32) -> i32 {
+  %c5 = arith.constant 5 : i32
+  %cm6 = arith.constant -6 : i32
+  %x1 = arith.xori %a, %c5 : i32
+  %x2 = arith.xori %a, %cm6 : i32
+  %r = arith.andi %x1, %x2 : i32
+  return %r : i32
+}
+
+// or(xor(a, c), xor(a, ~c)) -> -1.
+// CHECK-LABEL: @or_complementary_xor(
+//       CHECK:   %[[CM1:.+]] = arith.constant -1 : i32
+//       CHECK:   return %[[CM1]]
+func.func @or_complementary_xor(%a : i32) -> i32 {
+  %c5 = arith.constant 5 : i32
+  %cm6 = arith.constant -6 : i32
+  %x1 = arith.xori %a, %c5 : i32
+  %x2 = arith.xori %a, %cm6 : i32
+  %r = arith.ori %x1, %x2 : i32
+  return %r : i32
+}
+
+// Non-complementary constants must not fold.
+// CHECK-LABEL: @and_non_complementary_xor(
+//       CHECK:   arith.andi
+func.func @and_non_complementary_xor(%a : i32) -> i32 {
+  %c5 = arith.constant 5 : i32
+  %c6 = arith.constant 6 : i32
+  %x1 = arith.xori %a, %c5 : i32
+  %x2 = arith.xori %a, %c6 : i32
+  %r = arith.andi %x1, %x2 : i32
+  return %r : i32
+}
+
+// CHECK-LABEL: @or_non_complementary_xor(
+//       CHECK:   arith.ori
+func.func @or_non_complementary_xor(%a : i32) -> i32 {
+  %c5 = arith.constant 5 : i32
+  %c6 = arith.constant 6 : i32
+  %x1 = arith.xori %a, %c5 : i32
+  %x2 = arith.xori %a, %c6 : i32
+  %r = arith.ori %x1, %x2 : i32
+  return %r : i32
+}
+
+// The two xors must share the same non-constant operand.
+// CHECK-LABEL: @and_complementary_xor_diff_operands(
+//       CHECK:   arith.andi
+func.func @and_complementary_xor_diff_operands(%a : i32, %b : i32) -> i32 {
+  %c5 = arith.constant 5 : i32
+  %cm6 = arith.constant -6 : i32
+  %x1 = arith.xori %a, %c5 : i32
+  %x2 = arith.xori %b, %cm6 : i32
+  %r = arith.andi %x1, %x2 : i32
+  return %r : i32
+}
+
+// CHECK-LABEL: @complementary_xor_vector(
+//   CHECK-DAG:   %[[C0:.+]] = arith.constant dense<0> : vector<4xi32>
+//   CHECK-DAG:   %[[CM1:.+]] = arith.constant dense<-1> : vector<4xi32>
+//       CHECK:   return %[[C0]], %[[CM1]]
+func.func @complementary_xor_vector(%a : vector<4xi32>)
+    -> (vector<4xi32>, vector<4xi32>) {
+  %c5 = arith.constant dense<5> : vector<4xi32>
+  %cm6 = arith.constant dense<-6> : vector<4xi32>
+  %x1 = arith.xori %a, %c5 : vector<4xi32>
+  %x2 = arith.xori %a, %cm6 : vector<4xi32>
+  %0 = arith.andi %x1, %x2 : vector<4xi32>
+  %1 = arith.ori %x1, %x2 : vector<4xi32>
+  return %0, %1 : vector<4xi32>, vector<4xi32>
+}
+
 // -----
 
 // CHECK-LABEL: @addi_of_not

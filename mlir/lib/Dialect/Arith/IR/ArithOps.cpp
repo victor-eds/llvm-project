@@ -1157,6 +1157,19 @@ static Value foldAndIofAndI(arith::AndIOp op) {
   return {};
 }
 
+/// Return true if `lhs` and `rhs` are xori(a, c1) and xori(a, c2) sharing the
+/// same non-constant operand `a` with complementary constants c1 == ~c2. Then
+/// xori(a, c2) == not(xori(a, c1)), so `and` folds to 0 and `or` folds to -1.
+static bool areComplementaryXors(Value lhs, Value rhs) {
+  auto x1 = lhs.getDefiningOp<XOrIOp>();
+  auto x2 = rhs.getDefiningOp<XOrIOp>();
+  if (!x1 || !x2 || x1.getLhs() != x2.getLhs())
+    return false;
+  APInt c1, c2;
+  return matchPattern(x1.getRhs(), m_ConstantInt(&c1)) &&
+         matchPattern(x2.getRhs(), m_ConstantInt(&c2)) && c1 == ~c2;
+}
+
 OpFoldResult arith::AndIOp::fold(FoldAdaptor adaptor) {
   /// and(x, 0) -> 0
   if (matchPattern(adaptor.getRhs(), m_Zero()))
@@ -1189,6 +1202,10 @@ OpFoldResult arith::AndIOp::fold(FoldAdaptor adaptor) {
       if (orOp.getLhs() == other || orOp.getRhs() == other)
         return other;
   }
+
+  /// and(xor(a, c), xor(a, ~c)) -> 0
+  if (areComplementaryXors(getLhs(), getRhs()))
+    return getIntegerAttrOfType(getType(), 0);
 
   return constFoldBinaryOp<IntegerAttr>(
       adaptor.getOperands(),
@@ -1229,6 +1246,10 @@ OpFoldResult arith::OrIOp::fold(FoldAdaptor adaptor) {
       if (andOp.getLhs() == other || andOp.getRhs() == other)
         return other;
   }
+
+  /// or(xor(a, c), xor(a, ~c)) -> -1
+  if (areComplementaryXors(getLhs(), getRhs()))
+    return getIntegerAttrOfType(getType(), -1);
 
   return constFoldBinaryOp<IntegerAttr>(
       adaptor.getOperands(),

@@ -1639,6 +1639,12 @@ void arith::DivFOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
 //===----------------------------------------------------------------------===//
 
 OpFoldResult arith::RemFOp::fold(FoldAdaptor adaptor) {
+  // remf(±0.0, x) -> ±0.0 under nnan. With no NaN, x is non-zero and the
+  // remainder is the dividend, whose signed zero is preserved by returning it.
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan) &&
+      matchPattern(adaptor.getLhs(), m_AnyZeroFloat()))
+    return getLhs();
+
   return constFoldBinaryOp<FloatAttr>(adaptor.getOperands(),
                                       [](const APFloat &a, const APFloat &b) {
                                         APFloat result(a);

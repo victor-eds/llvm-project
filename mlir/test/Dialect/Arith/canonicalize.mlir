@@ -4083,6 +4083,37 @@ func.func @test_remf_vec() -> (vector<4xf32>) {
   return %0 : vector<4xf32>
 }
 
+// remf(+/-0.0, x) -> +/-0.0 under nnan; the signed zero of the dividend is kept.
+// CHECK-LABEL: @remf_zero_dividend_nnan(
+//   CHECK-DAG:   %[[PZ:.+]] = arith.constant 0.0
+//   CHECK-DAG:   %[[NZ:.+]] = arith.constant -0.0
+//       CHECK:   return %[[PZ]], %[[NZ]]
+func.func @remf_zero_dividend_nnan(%arg0 : f32) -> (f32, f32) {
+  %pz = arith.constant 0.0 : f32
+  %nz = arith.constant -0.0 : f32
+  %0 = arith.remf %pz, %arg0 fastmath<nnan> : f32
+  %1 = arith.remf %nz, %arg0 fastmath<nnan> : f32
+  return %0, %1 : f32, f32
+}
+
+// Without nnan, remf(0.0, x) must not fold.
+// CHECK-LABEL: @remf_zero_dividend_no_nnan(
+//       CHECK:   arith.remf
+func.func @remf_zero_dividend_no_nnan(%arg0 : f32) -> f32 {
+  %pz = arith.constant 0.0 : f32
+  %0 = arith.remf %pz, %arg0 : f32
+  return %0 : f32
+}
+
+// CHECK-LABEL: @remf_zero_dividend_nnan_vector(
+//       CHECK:   %[[PZ:.+]] = arith.constant dense<0.000000e+00> : vector<4xf32>
+//       CHECK:   return %[[PZ]]
+func.func @remf_zero_dividend_nnan_vector(%arg0 : vector<4xf32>) -> vector<4xf32> {
+  %pz = arith.constant dense<0.0> : vector<4xf32>
+  %0 = arith.remf %pz, %arg0 fastmath<nnan> : vector<4xf32>
+  return %0 : vector<4xf32>
+}
+
 // -----
 
 // CHECK-LABEL: @test_andi_not_fold_rhs(

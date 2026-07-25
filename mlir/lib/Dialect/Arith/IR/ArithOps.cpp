@@ -1180,6 +1180,22 @@ static Value foldAndIofAndI(arith::AndIOp op) {
   return {};
 }
 
+/// Match the boolean absorption law: if one operand is an `InnerOp` and the
+/// other operand is also one of that `InnerOp`'s operands, return the shared
+/// operand. Covers and(or(a, b), a) -> a and or(and(a, b), a) -> a, for both
+/// operand orders of the outer and inner ops.
+template <typename InnerOp>
+static Value matchAbsorption(Value lhs, Value rhs) {
+  for (bool swap : {false, true}) {
+    Value maybeInner = swap ? rhs : lhs;
+    Value other = swap ? lhs : rhs;
+    if (auto inner = maybeInner.getDefiningOp<InnerOp>())
+      if (inner.getLhs() == other || inner.getRhs() == other)
+        return other;
+  }
+  return {};
+}
+
 OpFoldResult arith::AndIOp::fold(FoldAdaptor adaptor) {
   /// and(x, 0) -> 0
   if (matchPattern(adaptor.getRhs(), m_Zero()))
@@ -1203,6 +1219,10 @@ OpFoldResult arith::AndIOp::fold(FoldAdaptor adaptor) {
   /// and(a, and(a, b)) -> and(a, b)
   if (Value result = foldAndIofAndI(*this))
     return result;
+
+  // and(or(a, b), a) -> a (absorption law).
+  if (Value absorbed = matchAbsorption<OrIOp>(getLhs(), getRhs()))
+    return absorbed;
 
   return constFoldBinaryOp<IntegerAttr>(
       adaptor.getOperands(),
@@ -1234,6 +1254,10 @@ OpFoldResult arith::OrIOp::fold(FoldAdaptor adaptor) {
                                           m_ConstantInt(&intValue))) &&
       intValue.isAllOnes())
     return getLhs().getDefiningOp<XOrIOp>().getRhs();
+
+  // or(and(a, b), a) -> a (absorption law).
+  if (Value absorbed = matchAbsorption<AndIOp>(getLhs(), getRhs()))
+    return absorbed;
 
   return constFoldBinaryOp<IntegerAttr>(
       adaptor.getOperands(),

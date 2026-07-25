@@ -2401,6 +2401,46 @@ OpFoldResult arith::CmpIOp::fold(FoldAdaptor adaptor) {
     llvm_unreachable("unknown cmpi predicate kind");
   }
 
+  // cmpi(pred, x, C) folds to a constant when comparing against an extreme
+  // value makes the predicate a tautology or a contradiction for every x,
+  // e.g. `ult x, 0` -> false and `uge x, 0` -> true. Mirrors the tautologies
+  // handled by LLVM's ConstantRange::makeExactICmpRegion. Vectors fold only
+  // when the constant is a splat.
+  if (FailureOr<APInt> rhs = getIntOrSplatIntValue(adaptor.getRhs());
+      succeeded(rhs)) {
+    std::optional<bool> result;
+    switch (getPredicate()) {
+    case CmpIPredicate::ult: // x < 0 (unsigned)
+      result = rhs->isMinValue() ? std::optional(false) : std::nullopt;
+      break;
+    case CmpIPredicate::uge: // x >= 0 (unsigned)
+      result = rhs->isMinValue() ? std::optional(true) : std::nullopt;
+      break;
+    case CmpIPredicate::ule: // x <= UMAX
+      result = rhs->isMaxValue() ? std::optional(true) : std::nullopt;
+      break;
+    case CmpIPredicate::ugt: // x > UMAX
+      result = rhs->isMaxValue() ? std::optional(false) : std::nullopt;
+      break;
+    case CmpIPredicate::slt: // x < SMIN
+      result = rhs->isMinSignedValue() ? std::optional(false) : std::nullopt;
+      break;
+    case CmpIPredicate::sge: // x >= SMIN
+      result = rhs->isMinSignedValue() ? std::optional(true) : std::nullopt;
+      break;
+    case CmpIPredicate::sle: // x <= SMAX
+      result = rhs->isMaxSignedValue() ? std::optional(true) : std::nullopt;
+      break;
+    case CmpIPredicate::sgt: // x > SMAX
+      result = rhs->isMaxSignedValue() ? std::optional(false) : std::nullopt;
+      break;
+    default:
+      break;
+    }
+    if (result)
+      return getBoolAttribute(getType(), *result);
+  }
+
   // We are moving constants to the right side; So if lhs is constant rhs is
   // guaranteed to be a constant.
   if (auto lhs = dyn_cast_if_present<TypedAttr>(adaptor.getLhs())) {

@@ -3552,26 +3552,26 @@ func.func @test1(%arg0: i32) -> i1 {
   return %2 : i1
 }
 
+// uitofp(x) olt 0.0 -> cmpi ult x, 0 -> false (unsigned-to-fp is never < 0).
 // CHECK-LABEL: @test2(
-// CHECK-SAME: %[[arg0:.+]]:
 func.func @test2(%arg0: i32) -> i1 {
   %cst = arith.constant 0.000000e+00 : f64
   %1 = arith.uitofp %arg0: i32 to f64
   %2 = arith.cmpf olt, %1, %cst : f64
   return %2 : i1
-  // CHECK: %[[c0:.+]] = arith.constant 0 : i32
-  // CHECK: arith.cmpi ult, %[[arg0]], %[[c0]] : i32
+  // CHECK: %[[false:.+]] = arith.constant false
+  // CHECK: return %[[false]]
 }
 
+// uitofp(x) oge 0.0 -> cmpi uge x, 0 -> true (unsigned-to-fp is always >= 0).
 // CHECK-LABEL: @test3(
-// CHECK-SAME: %[[arg0:.+]]:
 func.func @test3(%arg0: i32) -> i1 {
   %cst = arith.constant 0.000000e+00 : f64
   %1 = arith.uitofp %arg0: i32 to f64
   %2 = arith.cmpf oge, %1, %cst : f64
   return %2 : i1
-  // CHECK: %[[c0:.+]] = arith.constant 0 : i32
-  // CHECK: arith.cmpi uge, %[[arg0]], %[[c0]] : i32
+  // CHECK: %[[true:.+]] = arith.constant true
+  // CHECK: return %[[true]]
 }
 
 // CHECK-LABEL: @test4(
@@ -3603,6 +3603,53 @@ func.func @test6(%arg0: i32) -> i1 {
   return %2 : i1
   // CHECK: %[[false:.+]] = arith.constant false
   // CHECK: return %[[false]] : i1
+}
+
+// CHECK-LABEL: @cmpi_tautologies(
+//   CHECK-DAG:   %[[T:.*]] = arith.constant true
+//   CHECK-DAG:   %[[F:.*]] = arith.constant false
+//       CHECK:   return %[[F]], %[[T]], %[[F]], %[[T]], %[[F]], %[[T]], %[[F]], %[[T]]
+func.func @cmpi_tautologies(%arg0 : i32) -> (i1, i1, i1, i1, i1, i1, i1, i1) {
+  %c0 = arith.constant 0 : i32
+  %cm1 = arith.constant -1 : i32
+  %smin = arith.constant -2147483648 : i32
+  %smax = arith.constant 2147483647 : i32
+  %0 = arith.cmpi ult, %arg0, %c0 : i32
+  %1 = arith.cmpi uge, %arg0, %c0 : i32
+  %2 = arith.cmpi ugt, %arg0, %cm1 : i32
+  %3 = arith.cmpi ule, %arg0, %cm1 : i32
+  %4 = arith.cmpi slt, %arg0, %smin : i32
+  %5 = arith.cmpi sge, %arg0, %smin : i32
+  %6 = arith.cmpi sgt, %arg0, %smax : i32
+  %7 = arith.cmpi sle, %arg0, %smax : i32
+  return %0, %1, %2, %3, %4, %5, %6, %7 : i1, i1, i1, i1, i1, i1, i1, i1
+}
+
+// A non-extreme constant must not fold to a tautology.
+// CHECK-LABEL: @cmpi_no_tautology(
+//       CHECK:   arith.cmpi ult
+func.func @cmpi_no_tautology(%arg0 : i32) -> i1 {
+  %c1 = arith.constant 1 : i32
+  %0 = arith.cmpi ult, %arg0, %c1 : i32
+  return %0 : i1
+}
+
+// CHECK-LABEL: @cmpi_tautology_vector(
+//       CHECK:   %[[T:.*]] = arith.constant dense<true> : vector<4xi1>
+//       CHECK:   return %[[T]]
+func.func @cmpi_tautology_vector(%arg0 : vector<4xi32>) -> vector<4xi1> {
+  %c0 = arith.constant dense<0> : vector<4xi32>
+  %0 = arith.cmpi uge, %arg0, %c0 : vector<4xi32>
+  return %0 : vector<4xi1>
+}
+
+// A non-splat extreme constant must not fold.
+// CHECK-LABEL: @cmpi_tautology_non_splat_no_fold(
+//       CHECK:   arith.cmpi uge
+func.func @cmpi_tautology_non_splat_no_fold(%arg0 : vector<4xi32>) -> vector<4xi1> {
+  %c = arith.constant dense<[0, 0, 0, 1]> : vector<4xi32>
+  %0 = arith.cmpi uge, %arg0, %c : vector<4xi32>
+  return %0 : vector<4xi1>
 }
 
 // Check that optimizing unsigned >= comparisons correctly distinguishes

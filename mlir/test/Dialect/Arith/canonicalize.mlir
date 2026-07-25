@@ -3072,6 +3072,91 @@ func.func @test_subf_negzero_splat(%arg0 : vector<4xf32>) -> vector<4xf32> {
 
 // -----
 
+// subf(x, -0.0) -> x under nsz.
+// CHECK-LABEL: @subf_neg_zero_nsz(
+//       CHECK:   return %arg0
+func.func @subf_neg_zero_nsz(%arg0 : f32) -> f32 {
+  %nz = arith.constant -0.0 : f32
+  %0 = arith.subf %arg0, %nz fastmath<nsz> : f32
+  return %0 : f32
+}
+
+// subf(x, x) -> 0.0 under nnan.
+// CHECK-LABEL: @subf_self_nnan(
+//       CHECK:   %[[C0:.+]] = arith.constant 0.000000e+00 : f32
+//       CHECK:   return %[[C0]]
+func.func @subf_self_nnan(%arg0 : f32) -> f32 {
+  %0 = arith.subf %arg0, %arg0 fastmath<nnan> : f32
+  return %0 : f32
+}
+
+// addf(negf(x), x) canonicalizes to subf(x, x), which then folds to 0 (nnan).
+// CHECK-LABEL: @addf_negf_self_nnan(
+//       CHECK:   %[[C0:.+]] = arith.constant 0.000000e+00 : f32
+//       CHECK:   return %[[C0]]
+func.func @addf_negf_self_nnan(%arg0 : f32) -> f32 {
+  %neg = arith.negf %arg0 : f32
+  %0 = arith.addf %neg, %arg0 fastmath<nnan> : f32
+  return %0 : f32
+}
+
+// subf with an infinite operand collapses under nnan.
+// CHECK-LABEL: @subf_inf_nnan(
+//   CHECK-DAG:   %[[PINF:.+]] = arith.constant 0x7F800000
+//   CHECK-DAG:   %[[NINF:.+]] = arith.constant 0xFF800000
+//       CHECK:   return %[[PINF]], %[[NINF]], %[[NINF]], %[[PINF]]
+func.func @subf_inf_nnan(%arg0 : f32) -> (f32, f32, f32, f32) {
+  %pinf = arith.constant 0x7F800000 : f32
+  %ninf = arith.constant 0xFF800000 : f32
+  %0 = arith.subf %pinf, %arg0 fastmath<nnan> : f32
+  %1 = arith.subf %ninf, %arg0 fastmath<nnan> : f32
+  %2 = arith.subf %arg0, %pinf fastmath<nnan> : f32
+  %3 = arith.subf %arg0, %ninf fastmath<nnan> : f32
+  return %0, %1, %2, %3 : f32, f32, f32, f32
+}
+
+// Without nnan, subf(x, x) must not fold.
+// CHECK-LABEL: @subf_self_no_nnan(
+//       CHECK:   arith.subf
+func.func @subf_self_no_nnan(%arg0 : f32) -> f32 {
+  %0 = arith.subf %arg0, %arg0 : f32
+  return %0 : f32
+}
+
+// subf(x, x) -> 0 needs the default rounding mode; roundTowardNegative gives
+// -0.0, so it must not fold with a custom rounding mode.
+// CHECK-LABEL: @subf_self_rounding_no_fold(
+//       CHECK:   arith.subf
+func.func @subf_self_rounding_no_fold(%arg0 : f32) -> f32 {
+  %0 = arith.subf %arg0, %arg0 downward fastmath<nnan> : f32
+  return %0 : f32
+}
+
+// Without nsz, subf(x, -0.0) must not fold; without nnan, subf(+inf, x) must not.
+// CHECK-LABEL: @subf_flag_negatives(
+//       CHECK:   arith.subf
+//       CHECK:   arith.subf
+func.func @subf_flag_negatives(%arg0 : f32) -> (f32, f32) {
+  %nz = arith.constant -0.0 : f32
+  %pinf = arith.constant 0x7F800000 : f32
+  %0 = arith.subf %arg0, %nz : f32
+  %1 = arith.subf %pinf, %arg0 : f32
+  return %0, %1 : f32, f32
+}
+
+// The subf folds apply elementwise to splat vectors.
+// CHECK-LABEL: @subf_splat_vector(
+//       CHECK:   %[[C0:.+]] = arith.constant dense<0.000000e+00> : vector<4xf32>
+//       CHECK:   return %arg0, %[[C0]]
+func.func @subf_splat_vector(%arg0 : vector<4xf32>) -> (vector<4xf32>, vector<4xf32>) {
+  %nz = arith.constant dense<-0.0> : vector<4xf32>
+  %0 = arith.subf %arg0, %nz fastmath<nsz> : vector<4xf32>
+  %1 = arith.subf %arg0, %arg0 fastmath<nnan> : vector<4xf32>
+  return %0, %1 : vector<4xf32>, vector<4xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @test_mulf(
 func.func @test_mulf(%arg0 : f32) -> (f32, f32, f32, f32) {
   // CHECK-DAG:   %[[C2:.+]] = arith.constant 2.0

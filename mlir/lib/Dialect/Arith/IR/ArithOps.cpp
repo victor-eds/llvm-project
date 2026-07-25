@@ -1389,6 +1389,31 @@ OpFoldResult arith::SubFOp::fold(FoldAdaptor adaptor) {
   if (matchPattern(adaptor.getRhs(), m_PosZeroFloat()))
     return getLhs();
 
+  // subf(x, -0) -> x under nsz (the result differs only for x = +0.0, where
+  // +0.0 - (-0.0) == +0.0, versus x == -0.0 giving -0.0).
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nsz) &&
+      matchPattern(adaptor.getRhs(), m_NegZeroFloat()))
+    return getLhs();
+
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan)) {
+    // subf(+inf, x) -> +inf and subf(-inf, x) -> -inf (nnan rules out the
+    // inf - inf == NaN case).
+    if (matchPattern(adaptor.getLhs(), m_PosInfFloat()) ||
+        matchPattern(adaptor.getLhs(), m_NegInfFloat()))
+      return getLhs();
+
+    // subf(x, +inf) -> -inf and subf(x, -inf) -> +inf.
+    if (matchPattern(adaptor.getRhs(), m_PosInfFloat()) ||
+        matchPattern(adaptor.getRhs(), m_NegInfFloat()))
+      return constFoldUnaryOp<FloatAttr>(ArrayRef<Attribute>{adaptor.getRhs()},
+                                         [](const APFloat &a) { return -a; });
+
+    // subf(x, x) -> 0.0. The exact result is +0.0 for the default rounding
+    // mode; roundTowardNegative would give -0.0, so bail on custom rounding.
+    if (getLhs() == getRhs() && !getRoundingmode())
+      return getFloatAttrOfType(getType(), 0.0);
+  }
+
   auto rm = getRoundingmode();
   return constFoldBinaryOp<FloatAttr>(
       adaptor.getOperands(), [rm](const APFloat &a, const APFloat &b) {

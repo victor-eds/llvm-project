@@ -444,6 +444,16 @@ OpFoldResult arith::AddIOp::fold(FoldAdaptor adaptor) {
     if (getLhs() == sub.getRhs())
       return sub.getLhs();
 
+  // addi(x, not(x)) -> -1 and addi(not(x), x) -> -1, where not(x) is
+  // xori(x, -1). Holds for all signless integers since x + ~x == -1.
+  if (APInt intValue;
+      (matchPattern(getRhs(), m_Op<XOrIOp>(matchers::m_Val(getLhs()),
+                                           m_ConstantInt(&intValue))) ||
+       matchPattern(getLhs(), m_Op<XOrIOp>(matchers::m_Val(getRhs()),
+                                           m_ConstantInt(&intValue)))) &&
+      intValue.isAllOnes())
+    return getIntegerAttrOfType(getType(), -1);
+
   return constFoldBinaryOp<IntegerAttr>(
       adaptor.getOperands(),
       [](APInt a, const APInt &b) { return std::move(a) + b; });

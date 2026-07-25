@@ -3069,6 +3069,70 @@ func.func @test_divf1(%arg0 : f32, %arg1 : f32) -> (f32) {
   return %2 : f32
 }
 
+// divf(x, x) -> 1.0 and +/-divf cancellations under nnan.
+// CHECK-LABEL: @divf_nnan(
+//   CHECK-DAG:   %[[C1:.+]] = arith.constant 1.000000e+00 : f32
+//   CHECK-DAG:   %[[CM1:.+]] = arith.constant -1.000000e+00 : f32
+//       CHECK:   return %[[C1]], %[[CM1]], %[[CM1]]
+func.func @divf_nnan(%arg0 : f32) -> (f32, f32, f32) {
+  %neg = arith.negf %arg0 : f32
+  %0 = arith.divf %arg0, %arg0 fastmath<nnan> : f32
+  %1 = arith.divf %neg, %arg0 fastmath<nnan> : f32
+  %2 = arith.divf %arg0, %neg fastmath<nnan> : f32
+  return %0, %1, %2 : f32, f32, f32
+}
+
+// divf(0.0, x) -> 0.0 needs nnan and nsz.
+// CHECK-LABEL: @divf_zero_dividend(
+//       CHECK:   %[[C0:.+]] = arith.constant 0.0
+//       CHECK:   return %[[C0]]
+func.func @divf_zero_dividend(%arg0 : f32) -> f32 {
+  %c0 = arith.constant 0.0 : f32
+  %0 = arith.divf %c0, %arg0 fastmath<nnan,nsz> : f32
+  return %0 : f32
+}
+
+// Without nnan, none of these fold (self, zero-dividend, or negf cancellation).
+// CHECK-LABEL: @divf_no_nnan(
+//       CHECK:   arith.divf
+//       CHECK:   arith.divf
+//       CHECK:   arith.divf
+//       CHECK:   arith.divf
+func.func @divf_no_nnan(%arg0 : f32) -> (f32, f32, f32, f32) {
+  %c0 = arith.constant 0.0 : f32
+  %neg = arith.negf %arg0 : f32
+  %0 = arith.divf %arg0, %arg0 : f32
+  %1 = arith.divf %c0, %arg0 fastmath<nsz> : f32
+  %2 = arith.divf %neg, %arg0 : f32
+  %3 = arith.divf %arg0, %neg : f32
+  return %0, %1, %2, %3 : f32, f32, f32, f32
+}
+
+// divf(0.0, x) needs nsz as well; with nnan only it must not fold.
+// CHECK-LABEL: @divf_zero_dividend_no_nsz(
+//       CHECK:   arith.divf
+func.func @divf_zero_dividend_no_nsz(%arg0 : f32) -> f32 {
+  %c0 = arith.constant 0.0 : f32
+  %0 = arith.divf %c0, %arg0 fastmath<nnan> : f32
+  return %0 : f32
+}
+
+// A dynamic shape must bail out of the constant-result folds.
+// CHECK-LABEL: @divf_self_dynamic_no_fold(
+//       CHECK:   arith.divf
+func.func @divf_self_dynamic_no_fold(%arg0 : tensor<?xf32>) -> tensor<?xf32> {
+  %0 = arith.divf %arg0, %arg0 fastmath<nnan> : tensor<?xf32>
+  return %0 : tensor<?xf32>
+}
+
+// CHECK-LABEL: @divf_nnan_vector(
+//       CHECK:   %[[C1:.+]] = arith.constant dense<1.000000e+00> : vector<4xf32>
+//       CHECK:   return %[[C1]]
+func.func @divf_nnan_vector(%arg0 : vector<4xf32>) -> vector<4xf32> {
+  %0 = arith.divf %arg0, %arg0 fastmath<nnan> : vector<4xf32>
+  return %0 : vector<4xf32>
+}
+
 // -----
 
 // Verify that constant folding respects rounding modes. 1.0000001 + 1.0 is not

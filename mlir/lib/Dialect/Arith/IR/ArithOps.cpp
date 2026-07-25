@@ -191,6 +191,20 @@ static Attribute getIntegerAttrOfType(Type type, int64_t value) {
   return DenseElementsAttr::get(shapedType, scalarAttr);
 }
 
+/// Return a scalar or splat float attribute of `type` (a float type or a shaped
+/// type thereof) holding `value`. Returns a null attribute for shaped types
+/// with a dynamic shape, so callers can bail out of folding.
+static Attribute getFloatAttrOfType(Type type, double value) {
+  auto scalarAttr =
+      FloatAttr::get(cast<FloatType>(getElementTypeOrSelf(type)), value);
+  ShapedType shapedType = dyn_cast<ShapedType>(type);
+  if (!shapedType)
+    return scalarAttr;
+  if (!shapedType.hasStaticShape())
+    return {};
+  return DenseElementsAttr::get(shapedType, scalarAttr);
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen'd canonicalization patterns
 //===----------------------------------------------------------------------===//
@@ -1640,6 +1654,28 @@ OpFoldResult arith::DivFOp::fold(FoldAdaptor adaptor) {
   // divf(x, 1) -> x
   if (matchPattern(adaptor.getRhs(), m_OneFloat()))
     return getLhs();
+
+  // The remaining identities are only valid without NaN operands: with NaN,
+  // x/x, -x/x and 0/x would all be NaN. The 1.0/-1.0 results are exact for
+  // every float format, so no rounding-mode guard is needed.
+  if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nnan)) {
+    // divf(x, x) -> 1.0
+    if (getLhs() == getRhs())
+      return getFloatAttrOfType(getType(), 1.0);
+
+    // divf(negf(x), x) -> -1.0 and divf(x, negf(x)) -> -1.0
+    if (auto neg = getLhs().getDefiningOp<NegFOp>();
+        neg && neg.getOperand() == getRhs())
+      return getFloatAttrOfType(getType(), -1.0);
+    if (auto neg = getRhs().getDefiningOp<NegFOp>();
+        neg && neg.getOperand() == getLhs())
+      return getFloatAttrOfType(getType(), -1.0);
+
+    // divf(0.0, x) -> 0.0 (the result sign is unspecified, hence also nsz).
+    if (arith::bitEnumContainsAll(getFastmath(), arith::FastMathFlags::nsz) &&
+        matchPattern(adaptor.getLhs(), m_AnyZeroFloat()))
+      return getLhs();
+  }
 
   auto rm = getRoundingmode();
   return constFoldBinaryOp<FloatAttr>(

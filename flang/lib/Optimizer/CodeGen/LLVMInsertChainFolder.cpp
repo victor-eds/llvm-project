@@ -102,8 +102,10 @@ static mlir::Attribute getAttrIfConstant(mlir::Value val,
   if (mlir::Operation *op = val.getDefiningOp()) {
     unsigned resNum = llvm::cast<mlir::OpResult>(val).getResultNumber();
     llvm::SmallVector<mlir::Value> results;
+    // A fold can be partial: `results[resNum]` is null when that result was not
+    // folded.
     if (mlir::succeeded(rewriter.tryFold(op, results)) &&
-        results.size() > resNum) {
+        results.size() > resNum && results[resNum]) {
       if (auto cst = results[resNum].getDefiningOp<mlir::LLVM::ConstantOp>())
         return cst.getValue();
     }

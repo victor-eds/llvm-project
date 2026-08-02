@@ -335,3 +335,19 @@ func.func @fold_to_non_operand_value(%x: i64, %cond: i1) -> i64 {
   %cast2 = builtin.unrealized_conversion_cast %cast1 : index to i64
   return %cast2 : i64
 }
+
+// -----
+
+/// Check that a fold that only folds some of the results propagates a constant
+/// for the results it does fold.
+
+// CHECK-LABEL: func @partial_fold
+//  CHECK-SAME:   %[[ARG:.*]]: i32
+func.func @partial_fold(%arg0: i32) -> (i32, i32) {
+  // CHECK: %[[C:.*]] = "test.constant"() <{value = 42 : i32}>
+  // CHECK: %[[FOLD:.*]]:2 = test.partial_fold
+  // CHECK: return %[[C]], %[[FOLD]]#1
+  %c42 = "test.constant"() {value = 42 : i32} : () -> i32
+  %0:2 = "test.partial_fold"(%c42, %arg0) : (i32, i32) -> (i32, i32)
+  return %0#0, %0#1 : i32, i32
+}

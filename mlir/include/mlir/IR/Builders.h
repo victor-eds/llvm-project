@@ -538,15 +538,21 @@ public:
       block->getOperations().insert(insertPoint, op);
 
     // Attempt to fold the operation.
-    if (succeeded(tryFold(op, results)) && !results.empty()) {
-      // Erase the operation, if the fold removed the need for this operation.
+    if (failed(tryFold(op, results)) || results.empty()) {
+      // No result was replaced.
+      llvm::append_range(results, op->getResults());
+    } else if (!llvm::is_contained(results, Value())) {
+      // Every result was replaced, so this operation is not needed anymore.
       // Note: The fold already populated the results in this case.
       op->erase();
       return;
+    } else {
+      // Only some of the results were replaced. Keep the operation and use it
+      // for the results that were not folded.
+      for (auto [result, opResult] : llvm::zip_equal(results, op->getResults()))
+        if (!result)
+          result = opResult;
     }
-
-    ResultRange opResults = op->getResults();
-    results.assign(opResults.begin(), opResults.end());
     if (block && listener)
       listener->notifyOperationInserted(op, /*previous=*/{});
   }
@@ -577,6 +583,10 @@ public:
   /// `results`. Returns success if the operation was folded, failure otherwise.
   /// If the fold was in-place, `results` will not be filled. Optionally, newly
   /// materialized constant operations can be returned to the caller.
+  ///
+  /// A fold can be partial: an entry of `results` is null when the matching
+  /// result was not folded. The caller must then keep the operation to define
+  /// that result.
   ///
   /// Note: This function does not erase the operation on a successful fold.
   LogicalResult

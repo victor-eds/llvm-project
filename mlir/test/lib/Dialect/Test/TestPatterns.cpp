@@ -119,6 +119,27 @@ public:
   }
 };
 
+struct PartialFoldingPattern : public RewritePattern {
+public:
+  PartialFoldingPattern(MLIRContext *context)
+      : RewritePattern(TestPartialFoldAnchorOp::getOperationName(),
+                       /*benefit=*/1, context) {}
+
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+    // Exercise the createOrFold API for a multi-result operation whose folder
+    // only folds some of the results. The operation must stay in the output and
+    // keep defining the results that did not fold.
+    SmallVector<Value> results;
+    rewriter.createOrFold<TestPartialFoldOp>(
+        results, op->getLoc(), op->getResultTypes(), op->getOperands());
+    assert(results.size() == op->getNumResults() &&
+           llvm::all_of(results, [](Value v) { return static_cast<bool>(v); }));
+    rewriter.replaceOp(op, results);
+    return success();
+  }
+};
+
 /// This pattern creates a foldable operation at the entry point of the block.
 /// This tests the situation where the operation folder will need to replace an
 /// operation with a previously created constant that does not initially
@@ -452,7 +473,7 @@ struct TestGreedyPatternDriver
     populateWithGenerated(patterns);
 
     // Verify named pattern is generated with expected name.
-    patterns.add<FoldingPattern, TestNamedPatternRule,
+    patterns.add<FoldingPattern, PartialFoldingPattern, TestNamedPatternRule,
                  FolderInsertBeforePreviouslyFoldedConstantPattern,
                  FolderCommutativeOp2WithConstant, HoistEligibleOps,
                  MakeOpEligible>(&getContext());

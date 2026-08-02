@@ -233,6 +233,52 @@ LogicalResult TestOpWithVariadicResultsAndFolder::fold(
 }
 
 //===----------------------------------------------------------------------===//
+// TestPartialFoldOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult TestPartialFoldOp::fold(FoldAdaptor adaptor,
+                                      SmallVectorImpl<OpFoldResult> &results) {
+  // Return the result itself when the operand is not constant. The folding
+  // infrastructure reads that the same way as a null entry: "this result was
+  // not folded".
+  bool anyFolded = false;
+  for (auto [operand, result] :
+       llvm::zip_equal(adaptor.getInputs(), getOutputs())) {
+    results.push_back(operand ? OpFoldResult(operand) : OpFoldResult(result));
+    anyFolded |= static_cast<bool>(operand);
+  }
+  if (!anyFolded) {
+    results.clear();
+    return failure();
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TestFoldToOwnResultsOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+TestFoldToOwnResultsOp::fold(FoldAdaptor adaptor,
+                             SmallVectorImpl<OpFoldResult> &results) {
+  results.push_back(getRhsResult());
+  results.push_back(getLhsResult());
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TestPartialFoldToValueOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+TestPartialFoldToValueOp::fold(FoldAdaptor adaptor,
+                               SmallVectorImpl<OpFoldResult> &results) {
+  results.push_back(getLhs());
+  results.push_back(OpFoldResult());
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // TestOpInPlaceFold
 //===----------------------------------------------------------------------===//
 

@@ -608,7 +608,16 @@ static void checkFoldResultTypes(Operation *op,
   if (results.empty())
     return;
 
+  if (results.size() != op->getNumResults()) {
+    op->emitOpError() << "folder produced " << results.size()
+                      << " results, expected " << op->getNumResults();
+    assert(false && "incorrect number of fold results");
+  }
+
   for (auto [ofr, opResult] : llvm::zip_equal(results, op->getResults())) {
+    // A null entry means that this result was not folded.
+    if (ofr.isNull())
+      continue;
     if (auto value = dyn_cast<Value>(ofr)) {
       if (value.getType() != opResult.getType()) {
         op->emitOpError() << "folder produced a value of incorrect type: "
@@ -621,14 +630,69 @@ static void checkFoldResultTypes(Operation *op,
 }
 #endif // NDEBUG
 
+#ifndef NDEBUG
+/// Assert that a folder did not update the operation in place and leave some of
+/// its results unfolded in the same call. A partial fold keeps the operation,
+/// so the caller has to learn about the in-place update, and the only channel
+/// for that is an empty `results`. A complete fold erases the operation, so an
+/// in-place update is harmless there. Only the operands are checked, which is
+/// cheap and covers the folders that rewrite an operand in place.
+///
+/// Call this after `normalizeFoldResults`, so that a result the folder reported
+/// as unfolded is already null.
+static void
+checkNoInPlaceUpdateWithPartialFold(Operation *op, ValueRange originalOperands,
+                                    ArrayRef<OpFoldResult> results) {
+  if (results.empty() || isCompleteFold(results) ||
+      llvm::equal(op->getOperands(), originalOperands))
+    return;
+
+  op->emitOpError() << "folder updated the operation in place and also left "
+                       "some results unfolded; report the in-place update "
+                       "alone and leave the results to the next call";
+  assert(false && "in-place fold combined with a partial fold");
+}
+#endif // NDEBUG
+
+/// Bring the fold results into canonical form. A fold result that is a result
+/// of the operation means "this result was not folded", the same convention the
+/// single-result folding hook uses, so make it null. This holds whatever the
+/// index: folding a result to another result of the same operation would let
+/// the drivers swap uses back and forth forever.
+///
+/// Note: this does not turn an all-null vector into an empty one. An empty
+/// vector means that the folder did not fill it, which the callers read as an
+/// in-place fold. Only the folder knows if it updated the operation in place.
+static void normalizeFoldResults(Operation *op,
+                                 SmallVectorImpl<OpFoldResult> &results) {
+  if (results.empty())
+    return;
+
+  assert(results.size() == op->getNumResults() &&
+         "folder produced incorrect number of results");
+  for (OpFoldResult &ofr : results) {
+    auto value = dyn_cast_if_present<Value>(ofr);
+    if (value && value.getDefiningOp() == op)
+      ofr = OpFoldResult();
+  }
+}
+
 /// Attempt to fold this operation using the Op's registered foldHook.
 LogicalResult Operation::fold(ArrayRef<Attribute> operands,
                               SmallVectorImpl<OpFoldResult> &results) {
+#ifndef NDEBUG
+  SmallVector<Value> originalOperands(getOperands());
+#endif // NDEBUG
+
   // If we have a registered operation definition matching this one, use it to
   // try to constant fold the operation.
   if (succeeded(name.foldHook(this, operands, results))) {
 #ifndef NDEBUG
     checkFoldResultTypes(this, results);
+#endif // NDEBUG
+    normalizeFoldResults(this, results);
+#ifndef NDEBUG
+    checkNoInPlaceUpdateWithPartialFold(this, originalOperands, results);
 #endif // NDEBUG
     return success();
   }
@@ -643,10 +707,15 @@ LogicalResult Operation::fold(ArrayRef<Attribute> operands,
     return failure();
 
   LogicalResult status = interface->fold(this, operands, results);
+  if (succeeded(status)) {
 #ifndef NDEBUG
-  if (succeeded(status))
     checkFoldResultTypes(this, results);
 #endif // NDEBUG
+    normalizeFoldResults(this, results);
+#ifndef NDEBUG
+    checkNoInPlaceUpdateWithPartialFold(this, originalOperands, results);
+#endif // NDEBUG
+  }
   return status;
 }
 

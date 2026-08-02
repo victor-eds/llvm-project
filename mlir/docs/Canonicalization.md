@@ -230,8 +230,10 @@ Otherwise, the following is generated:
 ///  3. They can return a list of existing values or attribute that can be used
 ///     instead of the operation. In this case, fill in the results list and
 ///     return success. The results list must correspond 1-1 with the results of
-///     the operation, partial folding is not supported. The caller will remove
-///     the operation and use those results instead.
+///     the operation. An entry of the list can be null, which means that the
+///     corresponding result was not folded and keeps using the operation. The
+///     caller removes the operation and uses those results instead only if
+///     every entry is non-null.
 ///
 /// Note that this mechanism cannot be used to remove 0-result operations.
 LogicalResult MyOp::fold(FoldAdaptor adaptor,
@@ -239,6 +241,29 @@ LogicalResult MyOp::fold(FoldAdaptor adaptor,
   ...
 }
 ```
+
+Each entry of `results` has the same meaning as the `OpFoldResult` that the
+single-result hook returns: a null entry is "not folded", and an entry that is a
+result of the operation is also read as "not folded", whatever its index. A fold
+that leaves some entries null is a *partial fold*. The operation stays in the IR
+and keeps defining the results that did not fold, so a partial fold is also
+legal for an operation with side effects.
+
+Two rules keep the folding drivers at a fixed point.
+
+A folder must return `failure()` when it neither mutates the operation nor folds
+a result. A driver only counts a partial fold as progress when it rewrites at
+least one use, so a folder that always reports a partial fold does not make the
+driver loop, but it does make the driver do work for nothing.
+
+A folder must not mutate the operation in place *and* leave some results
+unfolded in the same call. A partial fold keeps the operation, so the caller has
+to learn about the in-place update, and the only channel for that is an empty
+list. A folder that can do both must report the in-place update alone and leave
+the results to the next call, which the driver makes because an in-place fold
+marks the operation as modified. A complete fold erases the operation, so it can
+be combined with an in-place update. `Operation::fold` checks this in a build
+with assertions.
 
 In the above, for each method a `FoldAdaptor` is provided with getters for
 each of the operands, returning the corresponding constant attribute. These

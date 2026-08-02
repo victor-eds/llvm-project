@@ -1498,58 +1498,37 @@ void ExtractStridedMetadataOp::getAsmResultNames(
   }
 }
 
-/// Helper function to perform the replacement of all constant uses of `values`
-/// by a materialized constant extracted from `maybeConstants`.
-/// `values` and `maybeConstants` are expected to have the same size.
-template <typename Container>
-static bool replaceConstantUsesOf(OpBuilder &rewriter, Location loc,
-                                  Container values,
-                                  ArrayRef<OpFoldResult> maybeConstants) {
-  assert(values.size() == maybeConstants.size() &&
-         " expected values and maybeConstants of the same size");
-  bool atLeastOneReplacement = false;
-  for (auto [maybeConstant, result] : llvm::zip(maybeConstants, values)) {
-    // Don't materialize a constant if there are no uses: this would indice
-    // infinite loops in the driver.
-    if (result.use_empty() || maybeConstant == getAsOpFoldResult(result))
-      continue;
-    assert(isa<Attribute>(maybeConstant) &&
-           "The constified value should be either unchanged (i.e., == result) "
-           "or a constant");
-    Value constantVal = arith::ConstantIndexOp::create(
-        rewriter, loc,
-        llvm::cast<IntegerAttr>(cast<Attribute>(maybeConstant)).getInt());
-    for (Operation *op : llvm::make_early_inc_range(result.getUsers())) {
-      // modifyOpInPlace: lambda cannot capture structured bindings in C++17
-      // yet.
-      op->replaceUsesOfWith(result, constantVal);
-      atLeastOneReplacement = true;
-    }
-  }
-  return atLeastOneReplacement;
-}
-
 LogicalResult
 ExtractStridedMetadataOp::fold(FoldAdaptor adaptor,
                                SmallVectorImpl<OpFoldResult> &results) {
-  OpBuilder builder(*this);
-
-  bool atLeastOneReplacement = replaceConstantUsesOf(
-      builder, getLoc(), ArrayRef<TypedValue<IndexType>>(getOffset()),
-      getConstifiedMixedOffset());
-  atLeastOneReplacement |= replaceConstantUsesOf(builder, getLoc(), getSizes(),
-                                                 getConstifiedMixedSizes());
-  atLeastOneReplacement |= replaceConstantUsesOf(
-      builder, getLoc(), getStrides(), getConstifiedMixedStrides());
-
-  // extract_strided_metadata(cast(x)) -> extract_strided_metadata(x).
+  // extract_strided_metadata(cast(x)) -> extract_strided_metadata(x), but only
+  // when the cast does not add static information. A cast towards a more static
+  // type carries the layout this operation reports, so folding it away would
+  // lose it.
+  //
+  // A folder cannot report an in-place update and replace results in the same
+  // call, so stop here. The driver calls the folder again, with a source type
+  // that is at least as static as this one.
   if (auto prev = getSource().getDefiningOp<CastOp>())
-    if (isa<MemRefType>(prev.getSource().getType())) {
+    if (CastOp::canFoldIntoConsumerOp(prev)) {
       getSourceMutable().assign(prev.getSource());
-      atLeastOneReplacement = true;
+      return success();
     }
 
-  return success(atLeastOneReplacement);
+  // Fold the offset, the sizes and the strides that the source type makes
+  // static. The base buffer is never folded. `getConstifiedMixed*` keeps the
+  // result itself for a dynamic value, which the folding infrastructure reads
+  // as "this result was not folded".
+  results.push_back(OpFoldResult());
+  results.push_back(getConstifiedMixedOffset());
+  llvm::append_range(results, getConstifiedMixedSizes());
+  llvm::append_range(results, getConstifiedMixedStrides());
+
+  if (llvm::none_of(results, llvm::IsaAndPresentPred<Attribute>)) {
+    results.clear();
+    return failure();
+  }
+  return success();
 }
 
 SmallVector<OpFoldResult> ExtractStridedMetadataOp::getConstifiedMixedSizes() {

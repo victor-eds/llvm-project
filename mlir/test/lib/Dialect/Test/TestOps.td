@@ -1648,6 +1648,44 @@ def TestOpWithVariadicResultsAndFolder: TEST_Op<"op_with_variadic_results_and_fo
   let hasFolder = 1;
 }
 
+// Folds every result whose matching operand is a constant. The results that do
+// not fold keep using the operation.
+def TestPartialFoldOp : TEST_Op<"partial_fold", [NoMemoryEffect]> {
+  let arguments = (ins Variadic<I32>:$inputs);
+  let results = (outs Variadic<I32>:$outputs);
+  let assemblyFormat = [{
+    $inputs attr-dict `:` functional-type($inputs, $outputs)
+  }];
+  let hasFolder = 1;
+}
+
+// Folds each result to the other result of the same operation. Both entries are
+// results of the operation, so the folding infrastructure reads both as "not
+// folded". Without that, the drivers would swap the uses of the two results
+// forever.
+def TestFoldToOwnResultsOp : TEST_Op<"fold_to_own_results", [NoMemoryEffect]> {
+  let arguments = (ins I32:$lhs, I32:$rhs);
+  let results = (outs I32:$lhsResult, I32:$rhsResult);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhsResult)";
+  let hasFolder = 1;
+}
+
+// Anchor to build a `test.partial_fold` with `createOrFold`.
+def TestPartialFoldAnchorOp : TEST_Op<"partial_fold_anchor"> {
+  let arguments = (ins I32:$lhs, I32:$rhs);
+  let results = (outs I32:$lhsResult, I32:$rhsResult);
+}
+
+// Folds the first result to the first operand and leaves the second result to
+// the operation. The folder reports success every time on purpose: the folding
+// drivers must still reach a fixed point.
+def TestPartialFoldToValueOp : TEST_Op<"partial_fold_to_value", [NoMemoryEffect]> {
+  let arguments = (ins I32:$lhs, I32:$rhs);
+  let results = (outs I32:$lhsResult, I32:$rhsResult);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhsResult)";
+  let hasFolder = 1;
+}
+
 def TestAddIOp : TEST_Op<"addi"> {
   let arguments = (ins AnyTypeOf<[I32, TestI32]>:$op1,
                        AnyTypeOf<[I32, TestI32]>:$op2);

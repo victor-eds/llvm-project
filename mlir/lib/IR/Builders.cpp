@@ -521,6 +521,12 @@ OpBuilder::tryFold(Operation *op, SmallVectorImpl<Value> &results,
   for (auto [foldResult, expectedType] :
        llvm::zip_equal(foldResults, opResults.getTypes())) {
 
+    // A null result was not folded and keeps using `op`.
+    if (foldResult.isNull()) {
+      results.push_back(Value());
+      continue;
+    }
+
     // Normal values get pushed back directly.
     if (auto value = llvm::dyn_cast_if_present<Value>(foldResult)) {
       results.push_back(value);

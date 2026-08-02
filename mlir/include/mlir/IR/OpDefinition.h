@@ -283,6 +283,17 @@ public:
   }
 };
 
+/// Return true if `foldResults`, as produced by `Operation::fold`, provides a
+/// replacement for every result of the folded operation. Only a complete fold
+/// lets the caller erase the operation. A fold that leaves some entries null is
+/// a partial fold: the operation stays and keeps defining the results whose
+/// entry is null.
+inline bool isCompleteFold(ArrayRef<OpFoldResult> foldResults) {
+  return !foldResults.empty() &&
+         llvm::none_of(foldResults,
+                       [](OpFoldResult ofr) { return ofr.isNull(); });
+}
+
 // Temporarily exit the MLIR namespace to add casting support as later code in
 // this uses it. The CastInfo must come after the OpFoldResult definition and
 // before any cast function calls depending on CastInfo.

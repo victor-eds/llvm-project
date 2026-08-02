@@ -103,6 +103,16 @@ LogicalResult OperationFolder::tryToFold(Operation *op, bool *inPlaceUpdate,
     return success();
   }
 
+  // A partial fold does not replace every result, so the operation stays and
+  // keeps defining the results that were not folded.
+  if (llvm::is_contained(results, Value())) {
+    for (auto [replacement, opResult] :
+         llvm::zip_equal(results, op->getResults()))
+      if (replacement)
+        rewriter.replaceAllUsesWith(opResult, replacement);
+    return success();
+  }
+
   // Constant folding succeeded. Replace all of the result values and erase the
   // operation.
   notifyRemoval(op);
@@ -252,6 +262,11 @@ OperationFolder::processFoldResults(Operation *op,
     return success();
   assert(foldResults.size() == op->getNumResults());
 
+  // A complete fold replaces every result, so the operation is erased. A
+  // partial fold leaves some results unfolded, so the operation stays and keeps
+  // defining them.
+  bool completeFold = isCompleteFold(foldResults);
+
   // Create a builder to insert new operations into the entry block of the
   // insertion region.
   auto *insertRegion = getInsertionRegion(interfaces, op->getBlock());
@@ -263,8 +278,17 @@ OperationFolder::processFoldResults(Operation *op,
 
   // Create the result constants and replace the results.
   auto *dialect = op->getDialect();
+  bool anyReplacement = false;
   for (unsigned i = 0, e = op->getNumResults(); i != e; ++i) {
-    assert(!foldResults[i].isNull() && "expected valid OpFoldResult");
+    // A partial fold does not remove the operation, so replacing a result that
+    // has no use makes no progress. Materializing a constant for it would make
+    // this fold report a change every time it runs.
+    if (foldResults[i].isNull() ||
+        (!completeFold && op->getResult(i).use_empty())) {
+      results.push_back(Value());
+      continue;
+    }
+    anyReplacement = true;
 
     // Check if the result was an SSA value.
     if (auto repl = llvm::dyn_cast_if_present<Value>(foldResults[i])) {
@@ -296,6 +320,13 @@ OperationFolder::processFoldResults(Operation *op,
       rewriter.eraseOp(&op);
     }
 
+    results.clear();
+    return failure();
+  }
+
+  // A partial fold that replaces nothing makes no progress. Report it as a
+  // failure so that callers do not spin on it.
+  if (!anyReplacement) {
     results.clear();
     return failure();
   }

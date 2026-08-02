@@ -271,8 +271,10 @@ public:
   ///     else in the IR. In this case, return success.
   ///  3. They can return a list of existing values that can be used instead
   ///     of the operation. In this case, fill in the results list and return
-  ///     success. The caller will remove the operation and use those results
-  ///     instead.
+  ///     success. The list must have one entry per operation result. A null
+  ///     entry means that the corresponding result was not folded and keeps
+  ///     using the operation. The caller removes the operation only if every
+  ///     entry is non-null.
   ///
   /// This allows expression of some simple in-place canonicalizations (e.g.
   /// "x+0 -> x", "min(x,y,x,z) -> min(x,y,z)", "x+y-x -> y", etc), as well as

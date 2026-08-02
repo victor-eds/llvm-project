@@ -516,12 +516,26 @@ bool GreedyPatternRewriteDriver::processWorklist() {
         // Op results can be replaced with `foldResults`.
         assert(foldResults.size() == op->getNumResults() &&
                "folder produced incorrect number of results");
+        // A complete fold replaces every result, so the operation is erased. A
+        // partial fold leaves some results unfolded, so the operation stays and
+        // keeps defining them.
+        bool completeFold = isCompleteFold(foldResults);
         OpBuilder::InsertionGuard g(rewriter);
         rewriter.setInsertionPoint(op);
+        // Replacement for each result, null if the result keeps using `op`.
         SmallVector<Value> replacements;
         bool materializationSucceeded = true;
-        for (auto [ofr, resultType] :
-             llvm::zip_equal(foldResults, op->getResultTypes())) {
+        for (auto [ofr, opResult] :
+             llvm::zip_equal(foldResults, op->getResults())) {
+          Type resultType = opResult.getType();
+          // A partial fold does not remove the operation, so replacing a result
+          // that has no use makes no progress. Materializing a constant for it
+          // would make this fold report a change on every visit and the driver
+          // would not reach a fixed point.
+          if (ofr.isNull() || (!completeFold && opResult.use_empty())) {
+            replacements.push_back(Value());
+            continue;
+          }
           if (auto value = dyn_cast<Value>(ofr)) {
             assert(value.getType() == resultType &&
                    "folder produced value of incorrect type");
@@ -537,6 +551,8 @@ bool GreedyPatternRewriteDriver::processWorklist() {
             // the previous results.
             llvm::SmallDenseSet<Operation *> replacementOps;
             for (Value replacement : replacements) {
+              if (!replacement)
+                continue;
               assert(replacement.use_empty() &&
                      "folder reused existing op for one result but constant "
                      "materialization failed for another result");
@@ -558,13 +574,35 @@ bool GreedyPatternRewriteDriver::processWorklist() {
         }
 
         if (materializationSucceeded) {
-          rewriter.replaceOp(op, replacements);
-          changed = true;
-          LLVM_DEBUG(logSuccessfulFolding(dumpRootOp));
+          bool changedIR = completeFold;
+          if (completeFold) {
+            rewriter.replaceOp(op, replacements);
+          } else {
+            // Replace the uses of the folded results and keep the operation.
+            // Every replaced result had at least one use, so this strictly
+            // reduces the number of uses of the results of `op` and the same
+            // fold cannot report progress again.
+            for (auto [replacement, opResult] :
+                 llvm::zip_equal(replacements, op->getResults())) {
+              if (!replacement)
+                continue;
+              rewriter.replaceAllUsesWith(opResult, replacement);
+              changedIR = true;
+            }
+            // The operation may have become dead, or may fold further now.
+            if (changedIR)
+              addToWorklist(op);
+          }
+          // If no use was rewritten, the fold made no progress. Fall through to
+          // the patterns.
+          if (changedIR) {
+            changed = true;
+            LLVM_DEBUG(logSuccessfulFolding(dumpRootOp));
 #if MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
-          expensiveChecks.notifyFoldingSuccess();
+            expensiveChecks.notifyFoldingSuccess();
 #endif // MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
-          continue;
+            continue;
+          }
         }
       }
     }

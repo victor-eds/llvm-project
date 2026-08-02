@@ -496,3 +496,20 @@ func.func @test_preorder_legalization() {
   // expected-remark @+1 {{'func.return' is not legalizable}}
   return
 }
+
+// -----
+
+// Only the first result of the operation folds. A partial fold keeps the
+// operation, so it is not a legalization. Check that the folder leaves no
+// constant behind.
+
+// CHECK-LABEL: @partial_fold_legalization
+func.func @partial_fold_legalization(%arg0: i32) -> (i32, i32) {
+  // CHECK-NEXT: %[[C:.*]] = "test.constant"() <{value = 42 : i32}>
+  // CHECK-NEXT: %[[FOLD:.*]]:2 = test.partial_fold %[[C]], %{{.*}}
+  // CHECK-NEXT: "test.return"(%[[FOLD]]#0, %[[FOLD]]#1)
+  %c42 = "test.constant"() {value = 42 : i32} : () -> i32
+  // expected-remark@+1 {{op 'test.partial_fold' is not legalizable}}
+  %0:2 = "test.partial_fold"(%c42, %arg0) : (i32, i32) -> (i32, i32)
+  "test.return"(%0#0, %0#1) : (i32, i32) -> ()
+}

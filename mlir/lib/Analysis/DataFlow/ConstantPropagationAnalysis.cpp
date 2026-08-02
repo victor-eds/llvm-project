@@ -76,17 +76,22 @@ LogicalResult SparseConstantPropagation::visitOperation(
   // fails or was an in-place fold, mark the results as overdefined.
   SmallVector<OpFoldResult, 8> foldResults;
   foldResults.reserve(op->getNumResults());
-  if (failed(op->fold(constantOperands, foldResults))) {
+  LogicalResult foldStatus = op->fold(constantOperands, foldResults);
+
+  // Reset the operation. We don't allow in-place folds as the desire here is
+  // for simulated execution, and not general folding. A folder can update the
+  // operation in place and also replace some of its results, so reset the
+  // operation whatever the outcome of the fold is.
+  op->setOperands(originalOperands);
+  op->setAttrs(originalAttrs);
+
+  if (failed(foldStatus)) {
     setAllToEntryStates(results);
     return success();
   }
 
-  // If the folding was in-place, mark the results as overdefined and reset
-  // the operation. We don't allow in-place folds as the desire here is for
-  // simulated execution, and not general folding.
+  // If the folding was in-place, mark the results as overdefined.
   if (foldResults.empty()) {
-    op->setOperands(originalOperands);
-    op->setAttrs(originalAttrs);
     setAllToEntryStates(results);
     return success();
   }
@@ -98,6 +103,11 @@ LogicalResult SparseConstantPropagation::visitOperation(
 
     // Merge in the result of the fold, either a constant or a value.
     OpFoldResult foldResult = std::get<1>(it);
+    // A null result was not folded, so nothing is known about it.
+    if (foldResult.isNull()) {
+      setToEntryState(lattice);
+      continue;
+    }
     if (Attribute attr = llvm::dyn_cast_if_present<Attribute>(foldResult)) {
       LDBG() << "Folded to constant: " << attr;
       propagateIfChanged(lattice,

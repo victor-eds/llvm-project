@@ -1070,12 +1070,12 @@ func.func @extract_strided_metadata_of_cast(
 
 // -----
 
-// Check that we simplify extract_strided_metadata of cast
-// when the source of the cast is compatible with what
-// `extract_strided_metadata`s accept.
+// Check that we read the constant sizes and strides of a cast towards a more
+// static type.
 //
-// Same as extract_strided_metadata_of_cast but with constant sizes and strides
-// in the destination type.
+// The cast is kept: it is what carries the static layout that the constants
+// come from, so folding it away would lose that type information. This matches
+// `CastOp::canFoldIntoConsumerOp`, which every other memref cast fold uses.
 //
 // CHECK-LABEL: func @extract_strided_metadata_of_cast_w_csts
 //  CHECK-SAME: %[[ARG:.*]]: memref<?x?xi32, strided<[?, ?], offset: ?>>)
@@ -1083,7 +1083,8 @@ func.func @extract_strided_metadata_of_cast(
 //   CHECK-DAG: %[[C4:.*]] = arith.constant 4 : index
 //   CHECK-DAG: %[[C18:.*]] = arith.constant 18 : index
 //   CHECK-DAG: %[[C25:.*]] = arith.constant 25 : index
-//       CHECK: %[[BASE:.*]], %[[DYN_OFFSET:.*]], %[[DYN_SIZES:.*]]:2, %[[DYN_STRIDES:.*]]:2 = memref.extract_strided_metadata %[[ARG]]
+//       CHECK: %[[CAST:.*]] = memref.cast %[[ARG]]
+//       CHECK: %[[BASE:.*]], %[[DYN_OFFSET:.*]], %[[DYN_SIZES:.*]]:2, %[[DYN_STRIDES:.*]]:2 = memref.extract_strided_metadata %[[CAST]]
 //
 //       CHECK: return %[[BASE]], %[[C25]], %[[C4]], %[[DYN_SIZES]]#1, %[[DYN_STRIDES]]#0, %[[C18]]
 func.func @extract_strided_metadata_of_cast_w_csts(
@@ -1751,4 +1752,25 @@ func.func @no_crash_dim_of_ambiguous_subview(
       : memref<?x?x?xf32, strided<[?, ?, ?], offset: ?>> to memref<1x?xf32, strided<[?, ?], offset: ?>>
   %dim = memref.dim %subview, %c1 : memref<1x?xf32, strided<[?, ?], offset: ?>>
   return %dim : index
+}
+
+// -----
+
+// A cast towards a less static type is folded away, and the metadata of the
+// more static source is then read on the next visit. The folder reports the
+// in-place update alone, so the driver has to come back; check that one
+// canonicalize run is enough.
+
+// CHECK-LABEL: func @extract_strided_metadata_of_widening_cast
+//  CHECK-SAME: %[[ARG:.*]]: memref<4x8xf32>
+//       CHECK:   %[[C32:.*]] = arith.constant 32 : index
+//       CHECK:   return %[[C32]]
+func.func @extract_strided_metadata_of_widening_cast(%arg: memref<4x8xf32>)
+  -> (index, memref<?x?xf32>) {
+  %cast = memref.cast %arg : memref<4x8xf32> to memref<?x?xf32>
+  %base, %offset, %sizes:2, %strides:2 =
+    memref.extract_strided_metadata %cast : memref<?x?xf32>
+    -> memref<f32>, index, index, index, index, index
+  %r = arith.muli %sizes#0, %sizes#1 : index
+  return %r, %cast : index, memref<?x?xf32>
 }

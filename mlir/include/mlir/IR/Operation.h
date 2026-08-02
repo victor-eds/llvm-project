@@ -745,9 +745,12 @@ public:
   /// the operation, but may be null if non-constant.
   ///
   /// If folding was successful, this function returns "success".
-  /// * If this operation was modified in-place (but not folded away),
+  /// * If this operation was modified in-place (but no result was replaced),
   ///   `results` is empty.
-  /// * Otherwise, `results` is filled with the folded results.
+  /// * Otherwise, `results` has one entry per operation result. A null entry
+  ///   means that the corresponding result was not folded and must keep using
+  ///   the operation. A non-null entry is the replacement for that result.
+  ///   The operation can only be erased if every entry is non-null.
   /// If folding was unsuccessful, this function returns "failure".
   LogicalResult fold(ArrayRef<Attribute> operands,
                      SmallVectorImpl<OpFoldResult> &results);
@@ -755,9 +758,12 @@ public:
   /// Attempt to fold this operation.
   ///
   /// If folding was successful, this function returns "success".
-  /// * If this operation was modified in-place (but not folded away),
+  /// * If this operation was modified in-place (but no result was replaced),
   ///   `results` is empty.
-  /// * Otherwise, `results` is filled with the folded results.
+  /// * Otherwise, `results` has one entry per operation result. A null entry
+  ///   means that the corresponding result was not folded and must keep using
+  ///   the operation. A non-null entry is the replacement for that result.
+  ///   The operation can only be erased if every entry is non-null.
   /// If folding was unsuccessful, this function returns "failure".
   LogicalResult fold(SmallVectorImpl<OpFoldResult> &results);
 

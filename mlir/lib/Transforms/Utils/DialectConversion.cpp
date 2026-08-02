@@ -2681,6 +2681,19 @@ LogicalResult OperationLegalizer::legalizeWithFold(Operation *op) {
   if (replacementValues.empty())
     return legalize(op);
 
+  // A partial fold keeps 'op' and does not change it, so 'op' stays illegal and
+  // the fold is not a legalization. Applying it anyway is not an option: this
+  // rewriter defers a value replacement to the commit, so a second visit cannot
+  // tell that it already replaced a result and would replace it again, which
+  // the rewriter forbids. Drop the constants that the folder materialized and
+  // let the patterns run.
+  if (llvm::is_contained(replacementValues, Value())) {
+    LLVM_DEBUG(logFailure(rewriterImpl.logger, "partial fold"));
+    for (Operation *newOp : llvm::reverse(newOps))
+      rewriter.eraseOp(newOp);
+    return failure();
+  }
+
   // Insert a replacement for 'op' with the folded replacement values.
   rewriter.replaceOp(op, replacementValues);
 

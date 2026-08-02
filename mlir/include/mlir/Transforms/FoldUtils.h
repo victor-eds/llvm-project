@@ -39,7 +39,9 @@ public:
   /// Tries to perform folding on the given `op`, including unifying
   /// deduplicated constants. If successful, replaces `op`'s uses with
   /// folded results, and returns success. If the op was completely folded it is
-  /// erased. If it is just updated in place, `inPlaceUpdate` is set to true.
+  /// erased. If only some of its results were folded, the op stays and keeps
+  /// defining the results that were not folded. If it is just updated in place,
+  /// `inPlaceUpdate` is set to true.
   /// On success() and when in-place, the folder is invoked until
   /// `maxIterations` is reached (default INT_MAX).
   LogicalResult tryToFold(Operation *op, bool *inPlaceUpdate = nullptr,
@@ -84,14 +86,16 @@ private:
   bool isFolderOwnedConstant(Operation *op) const;
 
   /// Tries to perform folding on the given `op`. If successful, populates
-  /// `results` with the results of the folding.
+  /// `results` with the results of the folding. `results` is empty if the op
+  /// was folded in place. An entry of `results` is null if the corresponding
+  /// result was not folded and keeps using `op`.
   /// On success() and when in-place, the folder is invoked until
   /// `maxIterations` is reached (default INT_MAX).
   LogicalResult tryToFold(Operation *op, SmallVectorImpl<Value> &results,
                           int maxIterations = INT_MAX);
 
   /// Try to process a set of fold results. Populates `results` on success,
-  /// otherwise leaves it unchanged.
+  /// otherwise leaves it unchanged. Fails if no result can be replaced.
   LogicalResult processFoldResults(Operation *op,
                                    SmallVectorImpl<Value> &results,
                                    ArrayRef<OpFoldResult> foldResults);

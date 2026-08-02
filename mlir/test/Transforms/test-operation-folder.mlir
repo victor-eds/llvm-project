@@ -80,3 +80,17 @@ func.func @test_fold_nofold_nocse() -> (i32, i32, i32, i32, i32, i32) {
   return %0, %1, %2, %c0, %c1, %c2 : i32, i32, i32, i32, i32, i32
 }
 
+// `createOrFold` builds a `test.partial_fold` whose folder only folds the first
+// result. The operation must stay and define the second result.
+
+// CHECK-LABEL: func @partial_fold_on_create
+//  CHECK-SAME:   %[[ARG:.*]]: i32
+//   CHECK-DAG:   %[[FOLDED:.*]] = "test.constant"() <{value = 42 : i32}>
+//   CHECK-DAG:   %[[C:.*]] = arith.constant 42 : i32
+//       CHECK:   %[[KEPT:.*]]:2 = test.partial_fold %[[C]], %[[ARG]]
+//       CHECK:   return %[[FOLDED]], %[[KEPT]]#1
+func.func @partial_fold_on_create(%arg0: i32) -> (i32, i32) {
+  %c42 = arith.constant 42 : i32
+  %0:2 = "test.partial_fold_anchor"(%c42, %arg0) : (i32, i32) -> (i32, i32)
+  return %0#0, %0#1 : i32, i32
+}

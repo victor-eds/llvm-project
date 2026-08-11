@@ -65,6 +65,13 @@ struct TestOneShotModuleBufferizePass
     return "Pass to test One Shot Module Bufferization";
   }
 
+  Option<bool> padAllocationRows{
+      *this, "pad-allocation-rows",
+      llvm::cl::desc("Give every fresh allocation a strided layout whose "
+                     "innermost stride is rounded up to a multiple of four, to "
+                     "test BufferizationOptions::allocationTypeFn"),
+      llvm::cl::init(false)};
+
   void runOnOperation() override {
 
     llvm::errs() << "Running TestOneShotModuleBufferize on: "
@@ -72,6 +79,29 @@ struct TestOneShotModuleBufferizePass
     bufferization::OneShotBufferizationOptions opt;
 
     opt.bufferizeFunctionBoundaries = true;
+    if (padAllocationRows) {
+      opt.allocationTypeFn =
+          [](TensorType tensorType, Attribute memorySpace,
+             const bufferization::BufferizationOptions &options)
+          -> FailureOr<bufferization::BufferLikeType> {
+        auto rankedTensorType = dyn_cast<RankedTensorType>(tensorType);
+        if (!rankedTensorType || rankedTensorType.getRank() < 2 ||
+            !rankedTensorType.hasStaticShape())
+          return cast<bufferization::BufferLikeType>(
+              bufferization::getMemRefTypeWithStaticIdentityLayout(
+                  tensorType, memorySpace));
+        ArrayRef<int64_t> shape = rankedTensorType.getShape();
+        SmallVector<int64_t> strides(shape.size(), 1);
+        strides[shape.size() - 2] = llvm::alignTo(shape.back(), 4);
+        for (int64_t i = shape.size() - 3; i >= 0; --i)
+          strides[i] = strides[i + 1] * shape[i + 1];
+        return cast<bufferization::BufferLikeType>(
+            MemRefType::get(shape, rankedTensorType.getElementType(),
+                            StridedLayoutAttr::get(tensorType.getContext(),
+                                                   /*offset=*/0, strides),
+                            memorySpace));
+      };
+    }
     opt.functionArgTypeConverterFn =
         [&](bufferization::TensorLikeType tensor, Attribute memSpace,
             func::FuncOp, const bufferization::BufferizationOptions &options) {

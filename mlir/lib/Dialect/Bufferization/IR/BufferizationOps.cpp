@@ -261,8 +261,7 @@ AllocTensorOp::getBufferType(Value value, const BufferizationOptions &options,
     return getOperation()->emitError("could not infer memory space");
   }
 
-  return cast<BufferLikeType>(
-      getMemRefTypeWithStaticIdentityLayout(getType(), memorySpace));
+  return options.allocationTypeFn(getType(), memorySpace, options);
 }
 
 LogicalResult AllocTensorOp::verify() {

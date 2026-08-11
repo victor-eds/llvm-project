@@ -409,6 +409,15 @@ defaultUnknownTypeConverter(TensorLikeType tensorType, Attribute memorySpace,
           cast<TensorType>(tensorType), memorySpace));
 }
 
+/// Default allocation type: Use a static identity layout map.
+FailureOr<BufferLikeType>
+defaultAllocationType(TensorType tensorType, Attribute memorySpace,
+                      const BufferizationOptions &options) {
+  return cast<BufferLikeType>(
+      bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType,
+                                                           memorySpace));
+}
+
 /// Default reconcile hook: memory space mismatch is an error, layout mismatch
 /// is resolved by promoting to fully dynamic.
 FailureOr<BufferLikeType>
@@ -437,6 +446,7 @@ BufferizationOptions::BufferizationOptions()
       castFn(defaultCreateCast),
       functionArgTypeConverterFn(defaultFunctionArgTypeConverter),
       unknownTypeConverterFn(defaultUnknownTypeConverter),
+      allocationTypeFn(defaultAllocationType),
       reconcileBufferTypeMismatchFn(defaultReconcileBufferTypeMismatch) {}
 
 bool BufferizationOptions::isOpAllowed(Operation *op) const {

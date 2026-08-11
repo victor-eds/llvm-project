@@ -278,6 +278,11 @@ struct BufferizationOptions {
   // Produce a MemorySpace attribute from a tensor type
   using DefaultMemorySpaceFn =
       std::function<std::optional<Attribute>(TensorLikeType t)>;
+  /// Buffer type of a fresh allocation. Returns `failure()` when the tensor
+  /// type has no allocatable buffer type.
+  /// Parameters: tensor type, memory space, bufferization options
+  using AllocationTypeFn = std::function<FailureOr<BufferLikeType>(
+      TensorType, Attribute memorySpace, const BufferizationOptions &)>;
 
   /// Resolve a mismatch between buffer types that were independently inferred,
   /// which results in a conflict at the "merge" point. Returns `failure()` to
@@ -373,6 +378,12 @@ struct BufferizationOptions {
   // failure to determine memory space for a tensor type).
   DefaultMemorySpaceFn defaultMemorySpaceFn =
       [](TensorLikeType t) -> std::optional<Attribute> { return Attribute(); };
+
+  // Buffer type that a fresh allocation for a tensor type will have. The
+  // allocation function receives this type, so a layout set here is the layout
+  // every consumer predicts through `getBufferType`. The default is a static
+  // identity layout.
+  AllocationTypeFn allocationTypeFn = nullptr;
 
   /// Hook to resolve a mismatch between conflicting buffer types that were
   /// independently inferred and have to now "converge" to a common buffer type

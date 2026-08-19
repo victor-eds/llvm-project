@@ -109,3 +109,106 @@ func.func @materialize_in_destination(%arg0: tensor<128xf32, 1>) -> tensor<128xf
 //       CHECK:     memref.copy %[[v0]], %[[alloc]] : memref<128xf32, strided<[?], offset: ?>, 1> to memref<128xf32, 2>
 //       CHECK:     %[[v1:.+]] = bufferization.to_tensor %[[alloc]] : memref<128xf32, 2> to tensor<128xf32, 2 : i64>
 //       CHECK:     return %[[v1]] : tensor<128xf32, 2 : i64>
+
+// -----
+
+// The parser strips any encoding, so an encoded constant must still match a
+// parsed global. A duplicate goes to the front, so each count check is bracketed.
+
+memref.global "private" constant @__constant_4xf32 : memref<4xf32, 1> = dense<[1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00]> alignment = 64
+
+func.func @encoded_constant_reuses_parsed_global() -> tensor<4xf32, 1 : i64> {
+  %0 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32, 1 : i64>
+  return %0 : tensor<4xf32, 1 : i64>
+}
+
+//   CHECK-NOT: memref.global
+//       CHECK: memref.global "private" constant @__constant_4xf32 : memref<4xf32, 1>
+//   CHECK-NOT: memref.global
+// CHECK-LABEL: @encoded_constant_reuses_parsed_global
+//       CHECK:     %[[v0:.+]] = memref.get_global @__constant_4xf32 : memref<4xf32, 1>
+
+// -----
+
+// A sparse constant takes the same path. The global must keep the sparse
+// representation, which a rebuild of the elements would expand to dense.
+
+memref.global "private" constant @__constant_4xf32 : memref<4xf32, 1> = sparse<[[0], [2]], [1.000000e+00, 3.000000e+00]> alignment = 64
+
+func.func @sparse_encoded_constant_reuses_parsed_global() -> tensor<4xf32, 1 : i64> {
+  %0 = arith.constant sparse<[[0], [2]], [1.0, 3.0]> : tensor<4xf32, 1 : i64>
+  return %0 : tensor<4xf32, 1 : i64>
+}
+
+//   CHECK-NOT: memref.global
+//       CHECK: memref.global "private" constant @__constant_4xf32 : memref<4xf32, 1> = sparse<{{\[\[}}0], [2]], [1.000000e+00, 3.000000e+00]>
+//   CHECK-NOT: memref.global
+// CHECK-LABEL: @sparse_encoded_constant_reuses_parsed_global
+//       CHECK:     %[[v0:.+]] = memref.get_global @__constant_4xf32 : memref<4xf32, 1>
+
+// -----
+
+// Memory space 0 is the trap: `MemRefType` maps it to a null memory space, so
+// the global and the requested space only compare equal through the type.
+
+memref.global "private" constant @__constant_4xf32 : memref<4xf32> = dense<[1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00]> alignment = 64
+
+func.func @space0_constant_reuses_parsed_global() -> tensor<4xf32, 0 : i64> {
+  %0 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32, 0 : i64>
+  return %0 : tensor<4xf32, 0 : i64>
+}
+
+//   CHECK-NOT: memref.global
+//       CHECK: memref.global "private" constant @__constant_4xf32 : memref<4xf32>
+//   CHECK-NOT: memref.global
+// CHECK-LABEL: @space0_constant_reuses_parsed_global
+//       CHECK:     %[[v0:.+]] = memref.get_global @__constant_4xf32 : memref<4xf32>
+
+// -----
+
+func.func @space0_constants_share_one_global() -> (tensor<4xf32, 0 : i64>, tensor<4xf32, 0 : i64>) {
+  %0 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32, 0 : i64>
+  %1 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32, 0 : i64>
+  return %0, %1 : tensor<4xf32, 0 : i64>, tensor<4xf32, 0 : i64>
+}
+
+//   CHECK-NOT: memref.global
+//       CHECK: memref.global "private" constant @__constant_4xf32 : memref<4xf32>
+//   CHECK-NOT: memref.global
+// CHECK-LABEL: @space0_constants_share_one_global
+//       CHECK:     %[[v0:.+]] = memref.get_global @__constant_4xf32 : memref<4xf32>
+//       CHECK:     %[[v2:.+]] = memref.get_global @__constant_4xf32 : memref<4xf32>
+
+// -----
+
+// The initial values are equal once the encoding is gone, so the memory space
+// must keep these two constants apart.
+
+func.func @constants_in_different_spaces_stay_separate() -> (tensor<4xf32, 1 : i64>, tensor<4xf32, 2 : i64>) {
+  %0 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32, 1 : i64>
+  %1 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32, 2 : i64>
+  return %0, %1 : tensor<4xf32, 1 : i64>, tensor<4xf32, 2 : i64>
+}
+
+//   CHECK-NOT: memref.global
+//       CHECK: memref.global "private" constant @__constant_4xf32_0 : memref<4xf32, 2>
+//       CHECK: memref.global "private" constant @__constant_4xf32 : memref<4xf32, 1>
+//   CHECK-NOT: memref.global
+// CHECK-LABEL: @constants_in_different_spaces_stay_separate
+//       CHECK:     %[[v0:.+]] = memref.get_global @__constant_4xf32 : memref<4xf32, 1>
+//       CHECK:     %[[v2:.+]] = memref.get_global @__constant_4xf32_0 : memref<4xf32, 2>
+
+// -----
+
+func.func @unencoded_constant() -> tensor<4xf32> {
+  %0 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : tensor<4xf32>
+  return %0 : tensor<4xf32>
+}
+
+//   CHECK-NOT: memref.global
+//       CHECK: memref.global "private" constant @__constant_4xf32 : memref<4xf32> = dense<[1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00]>
+//   CHECK-NOT: memref.global
+// CHECK-LABEL: @unencoded_constant
+//       CHECK:     %[[v0:.+]] = memref.get_global @__constant_4xf32 : memref<4xf32>
+//       CHECK:     %[[v1:.+]] = bufferization.to_tensor %[[v0]] : memref<4xf32> to tensor<4xf32>
+//       CHECK:     return %[[v1]] : tensor<4xf32>

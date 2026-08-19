@@ -106,6 +106,19 @@ bufferization::getGlobalFor(arith::ConstantOp constantOp,
   if (!moduleOp)
     return failure();
 
+  // Memref globals always have an identity layout.
+  auto memrefType =
+      cast<MemRefType>(getMemRefTypeWithStaticIdentityLayout(type));
+  if (memorySpace)
+    memrefType = MemRefType::Builder(memrefType).setMemorySpace(memorySpace);
+
+  // Round-tripped IR loses any tensor encoding: the parser rebuilds this type
+  // from the memref. Retype to match, or the dedup check below never matches.
+  auto initialValue = cast<ElementsAttr>(constantOp.getValue());
+  if (ElementsAttr plainValue = initialValue.cloneWithType(
+          cast<ShapedType>(memref::getTensorTypeFromMemRefType(memrefType))))
+    initialValue = plainValue;
+
   // If we already have a global for this constant value, no need to do
   // anything else.
   for (Operation &op : moduleOp.getRegion().getOps()) {
@@ -115,8 +128,10 @@ bufferization::getGlobalFor(arith::ConstantOp constantOp,
     if (!globalOp.getInitialValue().has_value())
       continue;
     uint64_t opAlignment = globalOp.getAlignment().value_or(0);
-    Attribute initialValue = globalOp.getInitialValue().value();
-    if (opAlignment == alignment && initialValue == constantOp.getValue())
+    // Compare the memref type, not `memorySpace`: `MemRefType` normalizes
+    // space 0 to null, and the type also pins the layout the caller reuses.
+    if (opAlignment == alignment && globalOp.getType() == memrefType &&
+        globalOp.getInitialValue().value() == initialValue)
       return globalOp;
   }
 
@@ -136,17 +151,12 @@ bufferization::getGlobalFor(arith::ConstantOp constantOp,
       alignment > 0 ? IntegerAttr::get(globalBuilder.getI64Type(), alignment)
                     : IntegerAttr();
 
-  // Memref globals always have an identity layout.
-  auto memrefType =
-      cast<MemRefType>(getMemRefTypeWithStaticIdentityLayout(type));
-  if (memorySpace)
-    memrefType = MemRefType::Builder(memrefType).setMemorySpace(memorySpace);
   auto global = memref::GlobalOp::create(
       globalBuilder, constantOp.getLoc(),
       (Twine("__constant_") + os.str()).str(),
       /*sym_visibility=*/globalBuilder.getStringAttr("private"),
       /*type=*/memrefType,
-      /*initial_value=*/cast<ElementsAttr>(constantOp.getValue()),
+      /*initial_value=*/initialValue,
       /*constant=*/true,
       /*alignment=*/memrefAlignment);
   symbolTable.insert(global);

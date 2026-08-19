@@ -452,6 +452,20 @@ LogicalResult OpaqueAttr::verify(function_ref<InFlightDiagnostic()> emitError,
 }
 
 //===----------------------------------------------------------------------===//
+// ElementsAttr Utilities
+//===----------------------------------------------------------------------===//
+
+/// Check the `ElementsAttr::cloneWithType` precondition: same element type
+/// and shape.
+static void assertRetypeIsValid(ShapedType curType, ShapedType newType) {
+  assert(newType.getElementType() == curType.getElementType() &&
+         "expected the same element type");
+  assert(newType.hasRank() == curType.hasRank() &&
+         (!newType.hasRank() || newType.getShape() == curType.getShape()) &&
+         "expected the same shape");
+}
+
+//===----------------------------------------------------------------------===//
 // DenseElementsAttr Utilities
 //===----------------------------------------------------------------------===//
 
@@ -1321,6 +1335,11 @@ void DenseTypedElementsAttr::convertEndianOfArrayRefForBEmachine(
                                     elementBitWidth, numElements);
 }
 
+ElementsAttr DenseTypedElementsAttr::cloneWithType(ShapedType newType) const {
+  assertRetypeIsValid(getType(), newType);
+  return DenseElementsAttr(*this).reshape(newType);
+}
+
 //===----------------------------------------------------------------------===//
 // DenseFPElementsAttr
 //===----------------------------------------------------------------------===//
@@ -1393,6 +1412,16 @@ bool DenseIntElementsAttr::classof(Attribute attr) {
 }
 
 //===----------------------------------------------------------------------===//
+// DenseStringElementsAttr
+//===----------------------------------------------------------------------===//
+
+ElementsAttr DenseStringElementsAttr::cloneWithType(ShapedType newType) const {
+  assertRetypeIsValid(getType(), newType);
+  // `DenseElementsAttr::reshape` reads string storage as raw bytes.
+  return DenseStringElementsAttr::get(newType, getRawStringData());
+}
+
+//===----------------------------------------------------------------------===//
 // DenseResourceElementsAttr
 //===----------------------------------------------------------------------===//
 
@@ -1416,6 +1445,12 @@ ArrayRef<char> DenseResourceElementsAttr::getData() {
   if (AsmResourceBlob *blob = this->getRawHandle().getBlob())
     return blob->getDataAs<char>();
   return {};
+}
+
+ElementsAttr
+DenseResourceElementsAttr::cloneWithType(ShapedType newType) const {
+  assertRetypeIsValid(getType(), newType);
+  return DenseResourceElementsAttr::get(newType, getRawHandle());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1648,6 +1683,14 @@ SparseElementsAttr::verify(function_ref<InFlightDiagnostic()> emitError,
   }
 
   return success();
+}
+
+ElementsAttr SparseElementsAttr::cloneWithType(ShapedType newType) const {
+  assertRetypeIsValid(getType(), newType);
+  // The builder asserts on other shaped types.
+  if (!isa<RankedTensorType, VectorType>(newType))
+    return nullptr;
+  return SparseElementsAttr::get(newType, getIndices(), getValues());
 }
 
 //===----------------------------------------------------------------------===//

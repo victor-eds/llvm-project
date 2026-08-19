@@ -440,6 +440,136 @@ TEST(SparseElementsAttrTest, GetZero) {
 }
 
 //===----------------------------------------------------------------------===//
+// ElementsAttr::cloneWithType
+//===----------------------------------------------------------------------===//
+
+static RankedTensorType encode(RankedTensorType type) {
+  return RankedTensorType::get(type.getShape(), type.getElementType(),
+                               StringAttr::get(type.getContext(), "enc"));
+}
+
+TEST(ElementsAttrCloneWithTypeTest, DenseElements) {
+  MLIRContext context;
+  Builder builder(&context);
+
+  auto type = RankedTensorType::get({2, 2}, builder.getI32Type());
+  auto attr =
+      cast<ElementsAttr>(DenseElementsAttr::get(encode(type), {0, 1, 2, 3}));
+
+  ElementsAttr clone = attr.cloneWithType(type);
+  ASSERT_TRUE(clone);
+  EXPECT_EQ(clone.getShapedType(), ShapedType(type));
+  EXPECT_EQ(clone,
+            cast<ElementsAttr>(DenseElementsAttr::get(type, {0, 1, 2, 3})));
+}
+
+TEST(ElementsAttrCloneWithTypeTest, DenseStringElements) {
+  MLIRContext context;
+  context.allowUnregisteredDialects();
+  Builder builder(&context);
+
+  Type stringTy = OpaqueType::get(builder.getStringAttr("test"), "string");
+  auto type = RankedTensorType::get({2}, stringTy);
+  StringRef valueStorage[] = {StringRef("foo"), StringRef("bar")};
+  ArrayRef<StringRef> values(valueStorage);
+  auto attr = cast<ElementsAttr>(DenseElementsAttr::get(encode(type), values));
+
+  ElementsAttr clone = attr.cloneWithType(type);
+  ASSERT_TRUE(clone);
+  EXPECT_EQ(clone.getShapedType(), ShapedType(type));
+  EXPECT_TRUE(isa<DenseStringElementsAttr>(clone));
+  EXPECT_EQ(clone, cast<ElementsAttr>(DenseElementsAttr::get(type, values)));
+}
+
+TEST(ElementsAttrCloneWithTypeTest, DenseResourceElements) {
+  MLIRContext context;
+  Builder builder(&context);
+
+  int32_t data[] = {0, 1};
+  auto type = RankedTensorType::get({2}, builder.getI32Type());
+  auto resourceAttr = DenseResourceElementsAttr::get(
+      encode(type), "resource",
+      UnmanagedAsmResourceBlob::allocateInferAlign(llvm::ArrayRef(data)));
+  auto attr = cast<ElementsAttr>(resourceAttr);
+
+  ElementsAttr clone = attr.cloneWithType(type);
+  ASSERT_TRUE(clone);
+  EXPECT_EQ(clone.getShapedType(), ShapedType(type));
+  auto resourceClone = dyn_cast<DenseResourceElementsAttr>(clone);
+  ASSERT_TRUE(resourceClone);
+  // The clone must reference the same blob, not a copy of the data.
+  EXPECT_EQ(resourceClone.getRawHandle(), resourceAttr.getRawHandle());
+}
+
+TEST(ElementsAttrCloneWithTypeTest, SparseElements) {
+  MLIRContext context;
+  Builder builder(&context);
+
+  auto type = RankedTensorType::get({2, 2}, builder.getI32Type());
+  auto indices = DenseIntElementsAttr::get(
+      RankedTensorType::get({1, 2}, builder.getI64Type()),
+      {APInt(64, 0), APInt(64, 1)});
+  auto values = DenseIntElementsAttr::get(
+      RankedTensorType::get({1}, builder.getI32Type()), {7});
+  auto attr = cast<ElementsAttr>(
+      SparseElementsAttr::get(encode(type), indices, values));
+
+  ElementsAttr clone = attr.cloneWithType(type);
+  ASSERT_TRUE(clone);
+  EXPECT_EQ(clone.getShapedType(), ShapedType(type));
+  auto sparseClone = dyn_cast<SparseElementsAttr>(clone);
+  ASSERT_TRUE(sparseClone);
+  // The clone must stay sparse and keep both operands.
+  EXPECT_EQ(sparseClone.getIndices(), indices);
+  EXPECT_EQ(sparseClone.getValues(), cast<DenseElementsAttr>(values));
+}
+
+TEST(ElementsAttrCloneWithTypeTest, SparseElementsToMemRef) {
+  MLIRContext context;
+  Builder builder(&context);
+
+  auto type = RankedTensorType::get({2, 2}, builder.getI32Type());
+  auto indices = DenseIntElementsAttr::get(
+      RankedTensorType::get({1, 2}, builder.getI64Type()),
+      {APInt(64, 0), APInt(64, 1)});
+  auto values = DenseIntElementsAttr::get(
+      RankedTensorType::get({1}, builder.getI32Type()), {7});
+  auto attr =
+      cast<ElementsAttr>(SparseElementsAttr::get(type, indices, values));
+
+  // A sparse attribute holds a ranked tensor or a vector only.
+  EXPECT_FALSE(attr.cloneWithType(
+      MemRefType::get(type.getShape(), type.getElementType())));
+}
+
+TEST(ElementsAttrCloneWithTypeTest, UnrankedResourceElements) {
+  MLIRContext context;
+  Builder builder(&context);
+
+  int32_t data[] = {0, 1};
+  auto type = UnrankedTensorType::get(builder.getI32Type());
+  auto attr = cast<ElementsAttr>(DenseResourceElementsAttr::get(
+      type, "resource",
+      UnmanagedAsmResourceBlob::allocateInferAlign(llvm::ArrayRef(data))));
+
+  // An attribute given its own type must clone, whether ranked or not.
+  EXPECT_EQ(attr.cloneWithType(type), attr);
+}
+
+TEST(ElementsAttrCloneWithTypeTest, UnsupportedAttr) {
+  MLIRContext context;
+  context.loadDialect<test::TestDialect>();
+  Builder builder(&context);
+
+  auto type = RankedTensorType::get({2}, builder.getI64Type());
+  uint64_t elements[] = {0, 1};
+  auto attr = cast<ElementsAttr>(test::TestI64ElementsAttr::get(
+      &context, encode(type), llvm::ArrayRef(elements)));
+
+  EXPECT_FALSE(attr.cloneWithType(type));
+}
+
+//===----------------------------------------------------------------------===//
 // SubElements
 //===----------------------------------------------------------------------===//
 

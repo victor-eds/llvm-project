@@ -340,6 +340,9 @@ def Builtin_DenseTypedElementsAttr : Builtin_Attr<
                                                 size_t elementBitWidth,
                                                 size_t numElements);
 
+    /// ElementsAttrInterface method.
+    ElementsAttr cloneWithType(ShapedType newType) const;
+
   protected:
     friend DenseElementsAttr;
 
@@ -450,6 +453,9 @@ def Builtin_DenseStringElementsAttr : Builtin_Attr<
       return try_value_begin<T>();
     }
 
+    /// ElementsAttrInterface method.
+    ElementsAttr cloneWithType(ShapedType newType) const;
+
   protected:
     friend DenseElementsAttr;
 
@@ -522,6 +528,9 @@ def Builtin_DenseResourceElementsAttr : Builtin_Attr<"DenseResourceElements",
   let extraClassDeclaration = [{
     /// BlobAttrInterface method.
     ArrayRef<char> getData();
+
+    /// ElementsAttrInterface method.
+    ElementsAttr cloneWithType(ShapedType newType) const;
   }];
 
   let skipDefaultBuilders = 1;
@@ -955,6 +964,9 @@ def Builtin_SparseElementsAttr : Builtin_Attr<
     /// ElementsAttr.
     template <typename T>
     FailureOr<iterator<T>> try_value_begin_impl(OverloadToken<T>) const;
+
+    /// ElementsAttrInterface method.
+    ElementsAttr cloneWithType(ShapedType newType) const;
 
   private:
     /// Get a zero APFloat for the given sparse attribute.

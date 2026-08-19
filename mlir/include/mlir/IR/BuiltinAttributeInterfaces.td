@@ -199,6 +199,18 @@ def ElementsAttrInterface : AttrInterface<"ElementsAttr", [TypedAttrInterface]> 
       Returns the shaped type of the elements attribute.
     }], "::mlir::ShapedType", "getShapedType", (ins), [{}], /*defaultImplementation=*/[{
         return $_attr.getType();
+    }]>,
+    InterfaceMethod<[{
+      Returns a copy of this attribute with the type `newType`, or a null
+      attribute if the attribute does not support `newType`. The copy keeps
+      the concrete attribute kind, so a sparse attribute stays sparse and a
+      resource attribute keeps its blob handle.
+
+      The default implementation returns a null attribute. An implementor that
+      can retype must implement this method.
+    }], "::mlir::ElementsAttr", "cloneWithType",
+    (ins "::mlir::ShapedType":$newType), [{}], /*defaultImplementation=*/[{
+        return nullptr;
     }]>
   ];
 
